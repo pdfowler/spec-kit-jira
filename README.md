@@ -25,22 +25,26 @@ The workflow is:
 
 ## Installation
 
-### From the community catalog
+### From this fork's catalog
 
 ```bash
+specify extension catalog add https://raw.githubusercontent.com/pdfowler/spec-kit-jira/main/catalog.json \
+  --name pdfowler-spec-kit-jira \
+  --install-allowed
+
 specify extension add jira
 ```
 
 Or install from the repository directly:
 
 ```bash
-specify extension add jira --from https://github.com/imviancagrace/spec-kit-jira/archive/refs/tags/v1.0.0.zip
+specify extension add jira --from https://github.com/pdfowler/spec-kit-jira/archive/refs/heads/main.zip
 ```
 
 ### From a local clone
 
 ```bash
-git clone https://github.com/imviancagrace/spec-kit-jira.git
+git clone https://github.com/pdfowler/spec-kit-jira.git
 cd /path/to/your-speckit-project
 specify extension add --dev /path/to/spec-kit-jira
 ```

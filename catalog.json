@@ -1,0 +1,45 @@
+{
+  "schema_version": "1.0",
+  "updated_at": "2026-05-21T00:00:00Z",
+  "catalog_url": "https://raw.githubusercontent.com/pdfowler/spec-kit-jira/main/catalog.json",
+  "extensions": {
+    "jira": {
+      "name": "Jira Integration",
+      "id": "jira",
+      "description": "Create Jira tickets from spec tasks and scope implementation to individual tickets",
+      "author": "Vianca Martinez",
+      "version": "1.0.0",
+      "download_url": "https://github.com/pdfowler/spec-kit-jira/archive/refs/heads/main.zip",
+      "repository": "https://github.com/pdfowler/spec-kit-jira",
+      "homepage": "https://github.com/pdfowler/spec-kit-jira",
+      "documentation": "https://github.com/pdfowler/spec-kit-jira/blob/main/README.md",
+      "changelog": "https://github.com/pdfowler/spec-kit-jira/blob/main/CHANGELOG.md",
+      "license": "MIT",
+      "requires": {
+        "speckit_version": ">=0.8.3",
+        "tools": [
+          {
+            "name": "Atlassian MCP",
+            "version": ">=1.0.0",
+            "required": true
+          }
+        ]
+      },
+      "provides": {
+        "commands": 2,
+        "hooks": 1
+      },
+      "tags": [
+        "jira",
+        "atlassian",
+        "project-management",
+        "issue-tracking"
+      ],
+      "verified": false,
+      "downloads": 0,
+      "stars": 0,
+      "created_at": "2026-02-27T00:00:00Z",
+      "updated_at": "2026-05-21T00:00:00Z"
+    }
+  }
+}

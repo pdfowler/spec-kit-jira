@@ -6,11 +6,12 @@ extension:
   version: "1.0.0"
   description: "Create Jira tickets from spec tasks and scope implementation to individual tickets"
   author: "Vianca Martinez"
-  repository: "https://github.com/imviancagrace/spec-kit-jira"
+  repository: "https://github.com/pdfowler/spec-kit-jira"
+  homepage: "https://github.com/pdfowler/spec-kit-jira"
   license: "MIT"
 
 requires:
-  speckit_version: ">=0.1.0"
+  speckit_version: ">=0.8.3"
   tools:
     - name: "Atlassian MCP"
       required: true
