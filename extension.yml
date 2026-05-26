@@ -3,8 +3,8 @@ schema_version: "1.0"
 extension:
   id: "jira"
   name: "Jira Integration"
-  version: "1.2.0"
-  description: "Three-tier Jira hierarchy (Epic → Story → Sub-task) from spec tasks, with dry-run preview and improved title formatting"
+  version: "1.2.1"
+  description: "Convert spec tasks into Jira tickets (Epic → Story → Sub-task), with dry-run preview and in-flight status sync"
   author: "Patrick Fowler"
   repository: "https://github.com/pdfowler/spec-kit-jira"
   homepage: "https://github.com/pdfowler/spec-kit-jira"
@@ -15,20 +15,17 @@ requires:
   tools:
     - name: "Atlassian MCP"
       required: true
-      version: ">=1.0.0"
-  commands:
-    - "speckit.tasks"
-    - "speckit.implement"
+      description: "Atlassian Remote MCP Server — provides Jira Cloud read/write access"
 
 provides:
   commands:
     - name: "speckit.jira.taskstotickets"
       file: "commands/taskstotickets.md"
-      description: "Convert tasks into a three-tier Epic → Story → Sub-task hierarchy with dry-run preview"
+      description: "Convert tasks.md phases into Jira tickets (Epic → Story → Sub-task) with mandatory preview before any writes; supports --dry-run"
 
     - name: "speckit.jira.implement"
       file: "commands/implement.md"
-      description: "Execute implementation scoped to a single Jira Story's tasks; closes Sub-tasks and Story as work completes"
+      description: "Run implementation scoped to a single Jira Story's tasks; closes Sub-tasks and the Story in Jira as work completes"
 
 hooks:
   after_tasks:

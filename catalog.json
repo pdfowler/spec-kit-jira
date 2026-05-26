@@ -6,9 +6,9 @@
     "jira": {
       "name": "Jira Integration",
       "id": "jira",
-      "description": "Create Jira tickets from spec tasks and scope implementation to individual tickets",
+      "description": "Convert spec tasks into Jira tickets (Epic → Story → Sub-task), with dry-run preview and in-flight status sync",
       "author": "Patrick Fowler",
-      "version": "1.2.0",
+      "version": "1.2.1",
       "download_url": "https://github.com/pdfowler/spec-kit-jira/archive/refs/heads/main.zip",
       "repository": "https://github.com/pdfowler/spec-kit-jira",
       "homepage": "https://github.com/pdfowler/spec-kit-jira",

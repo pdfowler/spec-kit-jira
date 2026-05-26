@@ -1,5 +1,31 @@
 # Changelog
 
+## [1.2.1] - 2026-05-26
+
+### Fixed
+
+- **Stale `jira-map.md` detection in `taskstotickets`**: When an existing
+  `jira-map.md` references an Epic key that no longer exists in Jira, the map is
+  now renamed to `jira-map.stale.md` with a clear warning instead of being silently
+  reused. This prevents the command from building on a failed or partially-created
+  previous run.
+
+- **Stale map validation in `implement`**: On startup, `implement` now validates
+  the first Story key in `jira-map.md` against Jira before doing any work. If the
+  key is not found, execution stops with a clear explanation rather than attempting
+  to close non-existent tickets.
+
+- **`jira-plan.md` can no longer be mistaken for real ticket output**: The dry-run
+  / `save-plan-only` artifact now has an explicit `⚠ DRAFT` header, a `(not created)`
+  Jira Key column, and a prominent note that no tickets were created. Previously the
+  file was structurally identical to `jira-map.md`, which caused confusion when an
+  agent re-read it as evidence of existing tickets.
+
+- **Atomic `jira-map.md` writes**: Added an explicit guard requiring all
+  `createJiraIssue` calls (Steps 11–12) to succeed before `jira-map.md` is written.
+  A failed mid-run previously risked writing a partial map that `implement` would
+  then trust unconditionally.
+
 ## [1.2.0] - 2026-05-26
 
 ### Changed

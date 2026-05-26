@@ -65,9 +65,13 @@ Call `getAccessibleAtlassianResources` to obtain the Jira Cloud ID.
 > The Epic is the organizing unit for the entire spec version.
 
 **A. Check for existing mapping**: Read `FEATURE_DIR/jira-map.md` if it exists.
-   - If the file contains `**Epic**: PROJ-NNN`, extract that key and validate it
-     via `getJiraIssue`.
-   - Present: `"Found existing Epic PROJ-NNN from jira-map.md. Use this? (yes / enter different key / create new)"`
+   - If the file contains `**Epic**: PROJ-NNN`, extract that key and **validate it
+     via `getJiraIssue`**.
+   - **If the Epic key does NOT exist in Jira** (404 / not visible):
+     - Warn: `"⚠ jira-map.md references PROJ-NNN but that issue was not found in Jira. The map may be stale or from a failed previous run. Treating as no existing mapping."`
+     - **Rename** `jira-map.md` to `jira-map.stale.md` so it is not silently reused.
+     - Continue as if no mapping exists (fall through to B or C).
+   - **If the Epic key exists**: present `"Found existing Epic PROJ-NNN from jira-map.md. Use this? (yes / enter different key / create new)"`
 
 **B. If no mapping exists** and the user provided an Epic key as argument:
    - Validate via `getJiraIssue`. If not found, **STOP** and report.
@@ -223,21 +227,27 @@ Story points: 5 will be set on the Epic.
 
 #### jira-plan.md format
 
+> [!IMPORTANT]
+> `jira-plan.md` **never contains real Jira keys** — no tickets have been created at
+> this point. The file is a planning artifact only. Do not use it as evidence that
+> tickets exist in Jira.
+
 ```markdown
-# Jira Ticket Plan
+# Jira Ticket Plan  ⚠ DRAFT — no tickets have been created
 
-**Project**: PROJ | **Epic**: PROJ-100 (existing) | **Generated**: YYYY-MM-DD
+**Project**: PROJ | **Epic**: PROJ-100 (existing, not yet linked) | **Generated**: YYYY-MM-DD
 **Estimated story points**: 5  (3 phases, 17 tasks, 1 external integration)
+**Status**: DRAFT — run `/speckit.jira.taskstotickets` without `--dry-run` to create tickets
 
-| Level       | Title                                      | Phase   | Task IDs  |
-|-------------|---------------------------------------------|---------|-----------|
-| Story       | Bootstrap project and install dependencies  | Phase 1 | T001–T002 |
-| (desc-only) | Foundation (≤3 tasks — tasks in description)| Phase 2 | T003–T005 |
-| Story       | Implement SMS delivery pipeline             | Phase 3 | T006–T014 |
-| Sub-task    | ↳ Implement TelnyxAdapter send method       | Phase 3 | T006      |
+| Level       | Title                                       | Phase   | Task IDs  | Jira Key  |
+|-------------|---------------------------------------------|---------|-----------|-----------|
+| Story       | Bootstrap project and install dependencies  | Phase 1 | T001–T002 | (not created) |
+| (desc-only) | Foundation (≤3 tasks — tasks in description)| Phase 2 | T003–T005 | (not created) |
+| Story       | Implement SMS delivery pipeline             | Phase 3 | T006–T014 | (not created) |
+| Sub-task    | ↳ Implement TelnyxAdapter send method       | Phase 3 | T006      | (not created) |
 ...
 
-_To create these tickets, run `/speckit.jira.taskstotickets` without `--dry-run`._
+_No Jira tickets were created. To create them, run `/speckit.jira.taskstotickets` without `--dry-run`._
 ```
 
 ---
@@ -295,6 +305,15 @@ For each sub-task entry, call `createJiraIssue` with:
 Record `subtask_map[T00X] = SUBTASK_KEY`.
 
 ### Step 13 — Persist jira-map.md
+
+> [!CAUTION]
+> **Only write `jira-map.md` after ALL `createJiraIssue` calls in Steps 11–12
+> have returned successfully.** If any create call fails, report the error and
+> **STOP** — do not write a partial map. A partial `jira-map.md` will cause
+> `implement` to reference tickets that do not exist.
+>
+> If a `jira-map.md` already exists from a previous run, **overwrite it in full**
+> (never append). Partial or appended maps are a source of stale-key bugs.
 
 Write `FEATURE_DIR/jira-map.md`:
 

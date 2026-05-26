@@ -31,7 +31,7 @@ auto-selects the next incomplete Story.
 Run `{SCRIPT} --json --require-tasks --include-tasks` from repo root and parse
 `FEATURE_DIR` and `AVAILABLE_DOCS` list. All paths must be absolute.
 
-### Step 2 — Load jira-map.md
+### Step 2 — Load and Validate jira-map.md
 
 Read `FEATURE_DIR/jira-map.md`.
 
@@ -44,6 +44,16 @@ Parse the file into two structures:
   If this section is absent, sub-task status updates are skipped silently.
 
 Also extract `**Epic**: PROJ-NNN` from the header for reference.
+
+**Validate the map is not stale** — before doing any implementation work, call
+`getJiraIssue` on the **first Story key** in the Story Map:
+- If the issue exists: proceed.
+- If the issue does NOT exist (404 / not visible):
+  - **STOP** and report:
+    > "⚠ jira-map.md references {STORY_KEY} but that issue was not found in Jira.
+    > The map may be from a failed or dry-run execution. Run `/speckit.jira.taskstotickets`
+    > to create tickets and regenerate the mapping."
+  - Do **not** attempt to implement or update any Jira tickets.
 
 ### Step 3 — Determine Target Story
 
