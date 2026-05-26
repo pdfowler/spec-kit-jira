@@ -5,7 +5,7 @@ extension:
   name: "Jira Integration"
   version: "1.2.0"
   description: "Three-tier Jira hierarchy (Epic → Story → Sub-task) from spec tasks, with dry-run preview and improved title formatting"
-  author: "Vianca Martinez"
+  author: "Patrick Fowler"
   repository: "https://github.com/pdfowler/spec-kit-jira"
   homepage: "https://github.com/pdfowler/spec-kit-jira"
   license: "MIT"

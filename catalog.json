@@ -7,7 +7,7 @@
       "name": "Jira Integration",
       "id": "jira",
       "description": "Create Jira tickets from spec tasks and scope implementation to individual tickets",
-      "author": "Vianca Martinez",
+      "author": "Patrick Fowler",
       "version": "1.2.0",
       "download_url": "https://github.com/pdfowler/spec-kit-jira/archive/refs/heads/main.zip",
       "repository": "https://github.com/pdfowler/spec-kit-jira",
