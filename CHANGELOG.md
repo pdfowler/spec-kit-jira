@@ -1,5 +1,30 @@
 # Changelog
 
+## [1.2.0] - 2026-05-26
+
+### Changed
+
+- **Story title formatting**: Removed `Phase N:` prefix from Story summaries — titles are
+  now concise deliverable statements starting with an action verb, max 60 chars
+  (e.g., `Implement SMS delivery pipeline` rather than `Phase 3: Implement SMS delivery pipeline`)
+
+- **Expanded skip-subtasks list**: Added `polish`, `cross-cutting`, `cleanup`, `qa`,
+  `validation`, `hardening`, `final` to the set of phase name signals that suppress
+  Sub-task creation. Those phases are now **description-only**: the full task checklist
+  is embedded in the Story description instead of creating noisy Sub-tasks.
+
+- **Story descriptions no longer repeat the task list** when Sub-tasks are being created.
+  Sub-task-eligible Stories contain only the phase goal/purpose and checkpoint criteria;
+  the individual tasks are captured as Sub-tasks. Description-only (skip-subtask) phases
+  still include the full checklist in the description.
+
+- **Sub-task title formatting**: Tightened to ≤ 7 words starting with an action verb.
+  File paths and marker tokens (`T00X`, `[P]`, `[US#]`) are stripped from the summary
+  and moved to the Sub-task description for traceability.
+
+- **Preview table** updated to show `(desc-only)` instead of `(skip)` for phases that
+  will have their task list embedded in the description.
+
 ## [1.1.0] - 2026-05-26
 
 ### Added

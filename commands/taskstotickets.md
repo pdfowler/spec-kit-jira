@@ -125,10 +125,16 @@ Search for existing Stories under the Epic using JQL:
 - If no siblings: use the default below.
 
 **Default naming convention** (applies to Story summaries):
-- Format: `Phase N: Concise action-oriented description`
-- Keep the `Phase N:` prefix for execution-order visibility
-- Rewrite everything after `Phase N:` as a concise deliverable summary (≤ 10 words)
-- Start with an action verb; describe the outcome, not the artifacts
+- Format: `<concise deliverable>` — **max 60 chars, no "Phase N:" prefix**
+- Start with an action verb (Implement, Add, Create, Deliver, Verify…)
+- Describe the **outcome**, not internal artifacts or phase numbers
+- No task IDs, no phase numbers, no "User Story N —" labels, no file paths
+
+| ❌ Bad | ✅ Good |
+|--------|---------|
+| `Phase 3: User Story 1 — Browse Filing Guides` | `Implement filing guide browse by state` |
+| `Phase 4: T015-T018 Auth middleware` | `Add JWT auth middleware and token refresh` |
+| `Phase 1: Setup` | `Bootstrap project and install dependencies` |
 
 ### Step 7 — Build the Full Planned Ticket Set
 
@@ -138,11 +144,22 @@ Parse tasks.md for `## Phase N:` headers. For each phase, determine:
 
 **Sub-task eligibility** — mark a phase as **skip-subtasks** if ANY of:
 - Phase name (case-insensitive) contains: `setup`, `foundation`, `foundational`,
-  `prereq`, `prerequisite`, `infrastructure`, `infra`
+  `prereq`, `prerequisite`, `infrastructure`, `infra`, `polish`, `cross-cutting`,
+  `cleanup`, `qa`, `validation`, `hardening`, `final`
 - Phase has ≤ 3 incomplete tasks
 
-For eligible phases, build the list of Sub-task summaries: strip `T00X`, `[P]`,
-and `[US#]` markers from each task line, keeping the human-readable description.
+Phases marked **skip-subtasks** are **description-only**: embed the full task list
+as a markdown checklist in the Story description instead of creating Sub-tasks.
+
+For subtask-eligible phases, build the list of Sub-task summaries:
+- Strip `T00X`, `[P]`, and `[US#]` markers from each task line
+- Extract the core action in **≤ 7 words**, starting with a verb
+- Move file paths to the sub-task description; keep them out of the summary
+
+| ❌ Bad | ✅ Good |
+|--------|---------|
+| `T001 Create project structure per implementation plan in src/app/` | `Create project structure` |
+| `T012 [P] [US1] Implement User model in src/models/user.py` | `Implement User model` |
 
 Store the full planned set as:
 ```
@@ -174,18 +191,18 @@ Epic: [New] "Two-Way SMS v1" (will be created in project PROJ)
 
 Estimated story points: 5  (3 phases, 17 tasks, 1 external integration)
 
-| Level    | Title                                       | Phase     | Task IDs           |
-|----------|---------------------------------------------|-----------|--------------------|
-| Story    | Phase 1: Set up notification infrastructure | Phase 1   | T001, T002         |
-| (skip)   | Phase 2: Foundation  ← ≤3 tasks            | Phase 2   | T003–T005          |
-| Story    | Phase 3: Implement SMS delivery pipeline    | Phase 3   | T006–T014          |
-| Sub-task |   ↳ Implement TelnyxAdapter.send()          | Phase 3   | T006               |
-| Sub-task |   ↳ Add retry with exponential backoff      | Phase 3   | T007               |
-| Sub-task |   ↳ ...                                     | Phase 3   | ...                |
-| Story    | Phase 4: Add delivery audit trail           | Phase 4   | T015–T019          |
-| Sub-task |   ↳ Create DeliveryAuditRecord model        | Phase 4   | T015               |
+| Level       | Title                                       | Phase   | Task IDs  |
+|-------------|---------------------------------------------|---------|-----------|
+| Story       | Bootstrap project and install dependencies  | Phase 1 | T001–T002 |
+| (desc-only) | ← skip-subtasks: ≤3 tasks                  | Phase 2 | T003–T005 |
+| Story       | Implement SMS delivery pipeline             | Phase 3 | T006–T014 |
+| Sub-task    |   ↳ Implement TelnyxAdapter send method     | Phase 3 | T006      |
+| Sub-task    |   ↳ Add retry with exponential backoff      | Phase 3 | T007      |
+| Sub-task    |   ↳ ...                                     | Phase 3 | ...       |
+| Story       | Add delivery audit trail                    | Phase 4 | T015–T019 |
+| Sub-task    |   ↳ Create DeliveryAuditRecord model        | Phase 4 | T015      |
 
-3 Stories · 11 Sub-tasks will be created.
+3 Stories · 11 Sub-tasks will be created.  (Phase 2 tasks embedded in Story description.)
 Story points: 5 will be set on the Epic.
 ```
 
@@ -212,12 +229,12 @@ Story points: 5 will be set on the Epic.
 **Project**: PROJ | **Epic**: PROJ-100 (existing) | **Generated**: YYYY-MM-DD
 **Estimated story points**: 5  (3 phases, 17 tasks, 1 external integration)
 
-| Level | Title | Phase | Task IDs |
-|-------|-------|-------|----------|
-| Story | Phase 1: Set up notification infrastructure | Phase 1 | T001, T002 |
-| (skip) | Phase 2: Foundation (≤3 tasks) | Phase 2 | T003–T005 |
-| Story | Phase 3: Implement SMS delivery pipeline | Phase 3 | T006–T014 |
-| Sub-task | ↳ Implement TelnyxAdapter.send() | Phase 3 | T006 |
+| Level       | Title                                      | Phase   | Task IDs  |
+|-------------|---------------------------------------------|---------|-----------|
+| Story       | Bootstrap project and install dependencies  | Phase 1 | T001–T002 |
+| (desc-only) | Foundation (≤3 tasks — tasks in description)| Phase 2 | T003–T005 |
+| Story       | Implement SMS delivery pipeline             | Phase 3 | T006–T014 |
+| Sub-task    | ↳ Implement TelnyxAdapter send method       | Phase 3 | T006      |
 ...
 
 _To create these tickets, run `/speckit.jira.taskstotickets` without `--dry-run`._
@@ -252,8 +269,11 @@ For each phase in `planned_tickets` (skip fully-completed phases):
 
 Call `createJiraIssue` with:
 - **Summary**: the Story title from Step 7
-- **Description** (Markdown): phase goal/purpose, checkpoint criteria (if present),
-  and the full list of task lines (with T00X IDs, `[P]`/`[US#]` markers, file paths)
+- **Description** (Markdown):
+  - *Subtask-eligible phase*: phase goal/purpose and checkpoint criteria only —
+    **do not include the full task list** (individual tasks are captured as Sub-tasks)
+  - *Description-only phase* (skip-subtasks): phase goal/purpose, checkpoint criteria,
+    **and** the full task list as a markdown checklist (since no Sub-tasks will be created)
 - **Issue type**: `STORY_TYPE`
 - **Parent / Epic Link**: `EPIC_KEY`
 
