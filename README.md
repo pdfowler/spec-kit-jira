@@ -1,6 +1,6 @@
 # spec-kit-jira
 
-A [Spec Kit](https://github.com/github/spec-kit) extension that integrates Jira into the spec-to-implementation workflow. Create Jira tickets from your spec tasks and scope implementation to individual tickets.
+A [Spec Kit](https://github.com/github/spec-kit) extension that integrates Jira into the spec-to-implementation workflow. Converts spec tasks into a three-tier Jira hierarchy and scopes implementation to individual tickets.
 
 ## What it does
 
@@ -8,18 +8,30 @@ This extension adds two commands:
 
 | Command | Description |
 |---------|-------------|
-| `/speckit.jira.taskstotickets` | Converts phases from `tasks.md` into Jira tickets (Tasks or Sub-tasks) and writes a `jira-map.md` mapping file |
-| `/speckit.jira.implement` | Runs implementation scoped to a single Jira ticket's tasks, with auto-selection of the next incomplete ticket |
+| `/speckit.jira.taskstotickets` | Converts `tasks.md` phases into a three-tier Jira hierarchy (Epic → Story → Sub-task) with a mandatory preview before any writes. Supports `--dry-run`. |
+| `/speckit.jira.implement` | Runs implementation scoped to a single Jira Story's tasks; closes Sub-tasks and the Story in Jira as work completes. |
 
 The workflow is:
 
 1. **Generate tasks** with `/speckit.tasks` (core command)
-2. **Create Jira tickets** with `/speckit.jira.taskstotickets` — one ticket per phase, optionally as sub-tasks under a parent
-3. **Implement by ticket** with `/speckit.jira.implement PROJ-456` — executes only the tasks mapped to that ticket
+2. **Preview and create Jira tickets** with `/speckit.jira.taskstotickets` — see exactly what will be created before committing
+3. **Implement by ticket** with `/speckit.jira.implement PROJ-456` — executes only the tasks mapped to that Story
+
+## Hierarchy
+
+```
+Epic   (one per spec version — the sprint/time organizing unit)
+  └── Story    (one per ## Phase N: in tasks.md — primary board visibility)
+        └── Sub-task  (one per T00X item — granular implementation tracking)
+```
+
+Sub-tasks are created selectively. Phases are auto-skipped when their name contains
+`setup`, `foundation`, `prereq`, `infra`, or similar, or when they have ≤ 3 tasks.
+All other phases are shown in the preview and created when you confirm.
 
 ## Requirements
 
-- [Spec Kit](https://github.com/github/spec-kit) >= 0.1.0
+- [Spec Kit](https://github.com/github/spec-kit) >= 0.8.3
 - [Atlassian MCP server](https://www.npmjs.com/package/@anthropic/atlassian-mcp-server) configured and enabled
 - A Jira Cloud instance accessible via the MCP server
 
@@ -55,12 +67,27 @@ After installation, verify:
 specify extension list
 
 # Should show:
-#  ✓ Jira Integration (v1.0.0)
-#     Create Jira tickets from spec tasks and scope implementation to individual tickets
+#  ✓ Jira Integration (v1.1.0)
+#     Three-tier Jira hierarchy (Epic → Story → Sub-task) from spec tasks, with dry-run preview
 #     Commands: 2 | Hooks: 1 | Status: Enabled
 ```
 
 ## Usage
+
+### Dry run — preview without creating tickets
+
+```
+/speckit.jira.taskstotickets --dry-run
+```
+
+Builds the full plan and saves a `jira-plan.md` preview file. No Jira issues are
+created. Useful for reviewing the ticket structure before committing.
+
+You can also pass an existing Epic key:
+
+```
+/speckit.jira.taskstotickets PROJ-100 --dry-run
+```
 
 ### Creating Jira tickets from tasks
 
@@ -68,17 +95,19 @@ specify extension list
 /speckit.jira.taskstotickets
 ```
 
-Optionally provide a parent ticket to create sub-tasks:
+The command will:
+
+1. Ask you to confirm or create the Epic for this spec version
+2. Plan Stories (one per `## Phase N:` header) and Sub-tasks (for substantial phases)
+3. Show a full preview table with proposed titles, task IDs, and story point estimate
+4. Ask: **Proceed? (yes / no / save-plan-only)**
+5. On confirmation: create Epic (if new), Stories, Sub-tasks, write `jira-map.md`
+
+You can skip the Epic prompt by providing the key upfront:
 
 ```
-/speckit.jira.taskstotickets PROJ-123
+/speckit.jira.taskstotickets PROJ-100
 ```
-
-This will:
-- Group tasks by phase
-- Create one Jira ticket per incomplete phase
-- Estimate story points for the parent ticket (AI-assisted, accounting for Spec Kit + AI implementation)
-- Write a `jira-map.md` file to your feature directory
 
 ### Implementing by ticket
 
@@ -86,38 +115,54 @@ This will:
 /speckit.jira.implement
 ```
 
-With no arguments, the command shows a status table and auto-selects the next incomplete ticket. You can also target a specific ticket:
+With no arguments, the command shows a status table and auto-selects the next
+incomplete Story. You can also target a specific Story:
 
 ```
 /speckit.jira.implement PROJ-456
 ```
 
-The command:
-- Validates prerequisite phases are complete
-- Checks checklists (if any) before proceeding
-- Loads full spec context (plan, data model, contracts, etc.)
-- Executes only the tasks mapped to the target ticket
-- Marks completed tasks in `tasks.md`
+As tasks complete, the command:
+- Marks each `T00X` as `[x]` in `tasks.md`
+- Closes the corresponding Sub-task in Jira (if one was created)
+- Closes the Story in Jira when all tasks in the phase are done
 
 ### Hook: after_tasks
 
-When enabled, the extension prompts you to create Jira tickets automatically after `/speckit.tasks` completes.
+When enabled, the extension prompts you to create Jira tickets automatically
+after `/speckit.tasks` completes.
 
 ## Artifacts
 
+### jira-plan.md
+
+Written by `--dry-run` or the `save-plan-only` response to the preview prompt.
+Shows the full planned ticket hierarchy with proposed titles. Does **not** contain
+real Jira keys — for review only.
+
 ### jira-map.md
 
-Created by `taskstotickets` in your feature directory. Maps Jira ticket keys to task IDs and phases:
+Written after tickets are successfully created. Maps Story keys to task IDs and
+phases; consumed by `/speckit.jira.implement`.
 
 ```markdown
 # Jira Task Map
 
-**Project**: PROJ | **Parent**: PROJ-123 | **Created**: 2026-02-27
+**Project**: PROJ | **Epic**: PROJ-100 | **Created**: 2026-05-26
 
-| Jira Key | Task IDs | Phase |
-|----------|----------|-------|
-| PROJ-456 | T006, T007, T008 | Phase 3: Implement API endpoint |
-| PROJ-457 | T009, T010       | Phase 4: Add integration tests  |
+## Story Map
+
+| Story Key | Task IDs | Phase |
+|-----------|----------|-------|
+| PROJ-456  | T006, T007, T008 | Phase 3: Implement delivery pipeline |
+| PROJ-457  | T001, T002       | Phase 1: Set up infrastructure       |
+
+## Sub-task Map
+
+| Sub-task Key | Task ID | Story Key |
+|--------------|---------|-----------|
+| PROJ-460     | T006    | PROJ-456  |
+| PROJ-461     | T007    | PROJ-456  |
 ```
 
 ## License
