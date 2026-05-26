@@ -1,5 +1,5 @@
 ---
-description: Convert existing tasks into a three-tier Jira hierarchy (Epic → Story per phase → Sub-tasks per task), with a mandatory preview gate before any writes. Supports --dry-run to preview without creating tickets.
+description: Convert tasks.md into Jira tickets (parent ticket → phase tickets → sub-tasks) with a mandatory preview gate. Supports both checklist and story-card task formats. Supports --dry-run.
 tools:
   - 'Atlassian/getAccessibleAtlassianResources'
   - 'Atlassian/getVisibleJiraProjects'
@@ -8,6 +8,7 @@ tools:
   - 'Atlassian/createJiraIssue'
   - 'Atlassian/updateJiraIssue'
   - 'Atlassian/searchJiraIssuesUsingJql'
+  - 'Atlassian/createJiraIssueLink'
 scripts:
   sh: ../scripts/bash/check-prerequisites.sh
   ps: ../scripts/powershell/check-prerequisites.ps1
@@ -22,36 +23,45 @@ $ARGUMENTS
 You **MUST** consider the user input before proceeding (if not empty).
 
 Recognized arguments:
-- **Epic key** (e.g., `PROJ-100`) — use this Epic as the parent for all Stories.
-- **`--dry-run`** or **`-n`** — build the full plan and save `jira-plan.md`, but do **not** create any Jira issues or write `jira-map.md`.
+- **Parent ticket key** (e.g., `PROJ-123`) — nest all phase tickets under this parent
+- **`--dry-run`** or **`-n`** — preview without creating any Jira issues
 
 Arguments may be combined: `/speckit.jira.taskstotickets PROJ-100 --dry-run`
 
 ---
 
-## Hierarchy
+## Outline
 
-```
-Epic   (one per spec version — organizes the sprint/time allocation)
-  └── Story    (one per ## Phase N: header — primary board visibility)
-        └── Sub-task  (one per T00X item — granular implementation tracking)
-```
+### ── PLAN PHASE (read-only) ───────────────────────────────────────────────────
 
-Sub-tasks are **not** created for every phase. They are skipped automatically for
-setup/infrastructure phases and phases with ≤ 3 tasks.
+### Step 0 — Identify Parent Ticket
+
+If `$ARGUMENTS` contains a key matching `[A-Z]+-\d+`, extract it as `PARENT_KEY`.
+
+Otherwise ask the user:
+
+> Do you have an existing Epic or Story to group these tickets under?
+> - Provide the Jira key (e.g. `PROJ-123`) to nest phase tickets under it, **or**
+> - Type `none` to create standalone phase tickets
+
+Set `PARENT_KEY` to the provided key, or `null` if "none".
 
 ---
 
-## Outline
-
-### ── PLAN PHASE (read-only Jira calls) ──────────────────────────────────────
-
-### Step 1 — Load Feature Context
+### Step 1 — Load Tasks and Detect Format
 
 Run `{SCRIPT} --json --require-tasks --include-tasks` from repo root and parse
-`FEATURE_DIR` and `AVAILABLE_DOCS` list. All paths must be absolute.
+`FEATURE_DIR` and `AVAILABLE_DOCS`. All paths must be absolute. Extract the path
+to **tasks.md** and read it.
 
-Extract the path to **tasks.md** and read it.
+**Detect format** — inspect `tasks.md` to determine which format was used:
+- **Checklist**: phase headers (`## Phase N: …`) with task lines (`- [ ] T001 …`)
+- **Story-card**: story card headings (`### PREFIX-NNN: Title`) with **Name** /
+  **Description** / **Acceptance Criteria** / **Dependencies** blocks
+
+Set `FORMAT` to `checklist` or `story-card`. All subsequent steps branch on `FORMAT`.
+
+---
 
 ### Step 2 — Connect to Jira
 
@@ -60,79 +70,94 @@ Call `getAccessibleAtlassianResources` to obtain the Jira Cloud ID.
 > [!CAUTION]
 > ONLY PROCEED IF A VALID JIRA CLOUD RESOURCE IS RETURNED.
 
-### Step 3 — Identify the Epic
+---
 
-> The Epic is the organizing unit for the entire spec version.
+### Step 3 — Determine Project Key
 
-**A. Check for existing mapping**: Read `FEATURE_DIR/jira-map.md` if it exists.
-   - If the file contains `**Epic**: PROJ-NNN`, extract that key and **validate it
-     via `getJiraIssue`**.
-   - **If the Epic key does NOT exist in Jira** (404 / not visible):
-     - Warn: `"⚠ jira-map.md references PROJ-NNN but that issue was not found in Jira. The map may be stale or from a failed previous run. Treating as no existing mapping."`
-     - **Rename** `jira-map.md` to `jira-map.stale.md` so it is not silently reused.
-     - Continue as if no mapping exists (fall through to B or C).
-   - **If the Epic key exists**: present `"Found existing Epic PROJ-NNN from jira-map.md. Use this? (yes / enter different key / create new)"`
+- If `PARENT_KEY` is set: extract the project key from it (the part before the hyphen).
+- If `PARENT_KEY` is null: call `getVisibleJiraProjects`, list available projects,
+  and ask the user to confirm the target project key before proceeding.
 
-**B. If no mapping exists** and the user provided an Epic key as argument:
-   - Validate via `getJiraIssue`. If not found, **STOP** and report.
-   - Use the validated key.
+---
 
-**C. If no mapping and no argument**:
-   - Ask: `"No Epic found for this spec. Enter an existing Epic key (e.g., PROJ-100) or a name to create a new one:"`
-   - If key (matches `[A-Z]+-\d+`): validate via `getJiraIssue`.
-   - If name: note it as `EPIC_TO_CREATE = "<name>"` — **do not create yet** (creation happens in the Write Phase).
+### Step 4 — Validate Parent and Detect Stale Map
 
-Store as `EPIC_KEY` (existing key) or `EPIC_TO_CREATE` (name for new Epic).
+If `PARENT_KEY` is set:
+- Call `getJiraIssue` to confirm the parent ticket exists. If not, **STOP** and report.
 
-### Step 4 — Determine Project Key and Issue Types
+If `FEATURE_DIR/jira-map.md` exists from a previous run:
+- Extract the first Phase Ticket key from the map table and call `getJiraIssue`.
+- **If it does NOT exist in Jira**: the map is stale — rename `jira-map.md` →
+  `jira-map.stale.md` with a warning and continue as if no prior mapping exists.
 
-Extract the project key from `EPIC_KEY` or from the project the user confirmed.
-If only `EPIC_TO_CREATE` is set (no existing key), call `getVisibleJiraProjects`
-to confirm which project to use.
+---
 
-Call `getJiraProjectIssueTypesMetadata` to identify:
-- `EPIC_TYPE` — Epic issue type name
-- `STORY_TYPE` — Story issue type name (use `Task` if no Story type exists)
-- `SUBTASK_TYPE` — Sub-task issue type name
+### Step 5 — Story Points on Parent
+
+If `PARENT_KEY` is set, estimate and set story points (computed for preview, applied
+after confirmation):
+
+**Heuristic** (AI-assisted — assumes Spec Kit + AI coding agent):
+
+| Signal | Points |
+|--------|--------|
+| Total incomplete phases / story cards | 1 pt each |
+| Task volume (incomplete): 11–20 | +1 · 21–30: +2 · 31+: +3 |
+| External integrations (APIs, DBs, auth) | +1 per distinct integration |
+| Test depth (dedicated phases, E2E) | +1 if significant |
+| Novelty / research tasks | +1 if present |
+| Data model complexity (>5 entities, migrations) | +1 if present |
+
+Snap to nearest Fibonacci: **1, 2, 3, 5, 8, 13, 21**.
+
+Store as `ESTIMATED_POINTS` with a one-line breakdown.
+
+> This estimate intentionally deflates vs. manual effort because AI handles
+> boilerplate, scaffolding, and test generation.
+
+---
+
+### Step 6 — Discover Issue Types
+
+Call `getJiraProjectIssueTypesMetadata` for the target project. Identify:
+- **Task** (or Story) issue type — used for phase / story-card tickets
+- **Sub-task** issue type — used for individual task / acceptance-criterion tickets
 
 > [!CAUTION]
 > Use the **exact** names returned by the API. Never hardcode type names.
 
-### Step 5 — Compute Story Point Estimate
+---
 
-Analyze ALL incomplete tasks in tasks.md using this heuristic (do **not** write
-to Jira yet — this is computed for the preview):
+### Step 7 — Parse Work Units
 
-| Signal | Points |
-|--------|--------|
-| Total incomplete phases | Base: 1 pt per phase |
-| Task volume: 11–20 tasks | +1; 21–30: +2; 31+: +3 |
-| External integrations (services, DB, auth, APIs) | +1 per distinct integration |
-| Testing depth (dedicated test phases, E2E, contracts) | +1 if significant |
-| Novelty / research (spikes, unfamiliar tech) | +1 if present |
-| Data model complexity (>5 entities, migrations) | +1 if present |
+**Checklist format** — group by `## Phase N: …` headers:
+- Each phase = one work unit.
+- Collect all incomplete task lines (`- [ ] T00N …`). Skip phases where all tasks
+  are `- [x]`.
+- A phase with mixed complete/incomplete tasks is included; note already-done tasks
+  in the ticket description.
+- **Mark as description-only** (no sub-tasks) any phase whose heading contains any
+  of these signals (case-insensitive):
+  `setup`, `foundation`, `foundational`, `prereq`, `prerequisite`,
+  `infrastructure`, `infra`, `polish`, `cross-cutting`, `cleanup`,
+  `qa`, `validation`, `hardening`, `final`
+  — or any phase with ≤ 3 incomplete tasks.
+  Tasks for description-only phases are embedded in the ticket description.
 
-Snap to the nearest Fibonacci: **1, 2, 3, 5, 8, 13, 21**.
+**Story-card format** — group by `### PREFIX-NNN: Title` blocks:
+- Each story card = one work unit.
+- Collect all incomplete acceptance criteria lines (`- [ ] …`).
+- Skip cards where Status is `done` or all criteria are checked.
+- Also extract: **Name**, **Description**, **Files to modify**, **Dependencies**.
 
-Store as `ESTIMATED_POINTS` with a one-line breakdown (e.g., `"3 phases + 1 integration = 4 → 5"`).
+---
 
-> This estimate intentionally deflates vs. manual effort because AI handles boilerplate,
-> scaffolding, and test generation. Human effort concentrates on review and integration.
+### Step 8 — Draft Ticket Titles
 
-### Step 6 — Discover Naming Convention
-
-Search for existing Stories under the Epic using JQL:
-`issueType = {STORY_TYPE} AND "Epic Link" = {EPIC_KEY} ORDER BY key ASC`
-(Try `parent = {EPIC_KEY}` if the first returns nothing — next-gen vs. classic projects.)
-
-- If siblings exist: extract the naming pattern and match it.
-- If no siblings: use the default below.
-
-**Default naming convention** (applies to Story summaries):
+**Checklist — phase ticket titles**:
 - Format: `<concise deliverable>` — **max 60 chars, no "Phase N:" prefix**
-- Start with an action verb (Implement, Add, Create, Deliver, Verify…)
+- Start with an action verb (Implement, Add, Create, Verify, Harden…)
 - Describe the **outcome**, not internal artifacts or phase numbers
-- No task IDs, no phase numbers, no "User Story N —" labels, no file paths
 
 | ❌ Bad | ✅ Good |
 |--------|---------|
@@ -140,213 +165,173 @@ Search for existing Stories under the Epic using JQL:
 | `Phase 4: T015-T018 Auth middleware` | `Add JWT auth middleware and token refresh` |
 | `Phase 1: Setup` | `Bootstrap project and install dependencies` |
 
-### Step 7 — Build the Full Planned Ticket Set
-
-Parse tasks.md for `## Phase N:` headers. For each phase, determine:
-
-**Story title**: apply the naming convention from Step 6.
-
-**Sub-task eligibility** — mark a phase as **skip-subtasks** if ANY of:
-- Phase name (case-insensitive) contains: `setup`, `foundation`, `foundational`,
-  `prereq`, `prerequisite`, `infrastructure`, `infra`, `polish`, `cross-cutting`,
-  `cleanup`, `qa`, `validation`, `hardening`, `final`
-- Phase has ≤ 3 incomplete tasks
-
-Phases marked **skip-subtasks** are **description-only**: embed the full task list
-as a markdown checklist in the Story description instead of creating Sub-tasks.
-
-For subtask-eligible phases, build the list of Sub-task summaries:
-- Strip `T00X`, `[P]`, and `[US#]` markers from each task line
-- Extract the core action in **≤ 7 words**, starting with a verb
-- Move file paths to the sub-task description; keep them out of the summary
+**Checklist — sub-task titles** (one per T00N task line):
+- Strip the task ID prefix (`T001`, `T012 [P]`, etc.) — never include it in the title
+- Strip `[US#]` and `[P]` markers; move file paths to the sub-task description
+- Extract the core action in ≤ 7 words, starting with a verb
 
 | ❌ Bad | ✅ Good |
 |--------|---------|
-| `T001 Create project structure per implementation plan in src/app/` | `Create project structure` |
-| `T012 [P] [US1] Implement User model in src/models/user.py` | `Implement User model` |
+| `T001 Create project structure per plan in src/app/` | `Create project structure` |
+| `T012 [P] [US1] Implement User model in src/models/` | `Implement User model` |
 
-Store the full planned set as:
-```
-planned_tickets = [
-  { phase: "Phase 1", story_title: "...", tasks: ["T001","T002"], subtasks: [] },
-  { phase: "Phase 3", story_title: "...", tasks: ["T006",...], subtasks: [
-      { task_id: "T006", summary: "Implement TelnyxAdapter.send()" },
-      ...
-  ]},
-  ...
-]
-```
+**Story-card — ticket titles**:
+- Use the story card's **Name** field directly (3–8 words by spec)
+- Do NOT use the `### PREFIX-NNN: Title` heading line as the summary
+- If Name is missing, fall back to the heading title trimmed to 60 chars
 
-Also note any phases where ALL tasks are already completed (`- [x]`) — these are
-**skipped entirely** (no Story created).
+**Story-card — sub-task titles** (one per acceptance criterion):
+- Strip the `- [ ]` prefix; use the criterion text as-is if ≤ 60 chars
+- If longer: trim to the first clause (before a comma or semicolon) + "…"
 
 ---
 
-### ── PREVIEW GATE ────────────────────────────────────────────────────────────
+### ── PREVIEW GATE ─────────────────────────────────────────────────────────────
 
-### Step 8 — Show Preview and Confirm
+### Step 9 — Show Preview and Confirm
 
-Build and display the consolidated preview table:
+> [!IMPORTANT]
+> No Jira write API calls may occur before the user confirms in this step.
 
+Build and display a preview tree:
+
+*Checklist format:*
 ```
-Epic: PROJ-100 "Two-Way SMS v1" (existing)
-  — OR —
-Epic: [New] "Two-Way SMS v1" (will be created in project PROJ)
-
-Estimated story points: 5  (3 phases, 17 tasks, 1 external integration)
-
-| Level       | Title                                       | Phase   | Task IDs  |
-|-------------|---------------------------------------------|---------|-----------|
-| Story       | Bootstrap project and install dependencies  | Phase 1 | T001–T002 |
-| (desc-only) | ← skip-subtasks: ≤3 tasks                  | Phase 2 | T003–T005 |
-| Story       | Implement SMS delivery pipeline             | Phase 3 | T006–T014 |
-| Sub-task    |   ↳ Implement TelnyxAdapter send method     | Phase 3 | T006      |
-| Sub-task    |   ↳ Add retry with exponential backoff      | Phase 3 | T007      |
-| Sub-task    |   ↳ ...                                     | Phase 3 | ...       |
-| Story       | Add delivery audit trail                    | Phase 4 | T015–T019 |
-| Sub-task    |   ↳ Create DeliveryAuditRecord model        | Phase 4 | T015      |
-
-3 Stories · 11 Sub-tasks will be created.  (Phase 2 tasks embedded in Story description.)
-Story points: 5 will be set on the Epic.
+Project: PROJ  |  Parent: PROJ-100 (or "standalone")  |  Format: checklist
+────────────────────────────────────────────────────────────────────────────
+Bootstrap project and install dependencies   [Task]  2 sub-tasks
+  ├─ Create project structure                [Sub-task]
+  └─ Install and configure dependencies      [Sub-task]
+Implement core data model                    [Task]  3 sub-tasks
+  ├─ …
+Polish and cross-cutting cleanup             [Task]  description-only (5 tasks in description)
+Total: 3 tickets · 5 sub-tasks  (1 description-only ticket)
+Story points: 5 will be set on PROJ-100
 ```
 
-**If `--dry-run` or `-n` was in the user's arguments**:
-- Save the preview table to `FEATURE_DIR/jira-plan.md` (format below).
+*Story-card format:*
+```
+Project: PROJ  |  Parent: PROJ-100 (or "standalone")  |  Format: story-card
+─────────────────────────────────────────────────────────────────────────────
+Auth middleware setup                        [Task]  3 sub-tasks
+  ├─ Token validation passes for valid JWT   [Sub-task]
+  ├─ 401 returned for missing/expired token  [Sub-task]
+  └─ Middleware integrated with NestJS guards [Sub-task]
+Total: 2 tickets · 7 sub-tasks
+Story points: 3 will be set on PROJ-100
+```
+
+**If `--dry-run` or `-n`**:
+- Save the preview as `FEATURE_DIR/jira-plan.md` (format below).
 - Report: `"Dry run complete. Plan saved to jira-plan.md. No Jira tickets were created."`
 - **STOP** — do not proceed to the Write Phase.
 
-**Otherwise** — ask the user:
-
-```
-→ Proceed? (yes / no / save-plan-only)
-```
-
-- **`no`**: abort. No Jira writes, no files written.
-- **`save-plan-only`**: save `FEATURE_DIR/jira-plan.md` and stop. No Jira writes.
-- **`yes`**: continue to the Write Phase.
+**Otherwise** ask: **"Create these tickets? (yes / no / save-plan-only)"**
+- `no` → abort; no Jira writes, no files written.
+- `save-plan-only` → save `jira-plan.md` and stop; no Jira writes.
+- `yes` → continue to the Write Phase.
 
 #### jira-plan.md format
 
 > [!IMPORTANT]
-> `jira-plan.md` **never contains real Jira keys** — no tickets have been created at
-> this point. The file is a planning artifact only. Do not use it as evidence that
-> tickets exist in Jira.
+> `jira-plan.md` **never contains real Jira keys** — no tickets exist yet.
+> Do not use it as evidence that tickets have been created.
 
 ```markdown
 # Jira Ticket Plan  ⚠ DRAFT — no tickets have been created
 
-**Project**: PROJ | **Epic**: PROJ-100 (existing, not yet linked) | **Generated**: YYYY-MM-DD
-**Estimated story points**: 5  (3 phases, 17 tasks, 1 external integration)
+**Project**: PROJ | **Parent**: PROJ-100 (not yet linked) | **Generated**: YYYY-MM-DD
 **Status**: DRAFT — run `/speckit.jira.taskstotickets` without `--dry-run` to create tickets
 
-| Level       | Title                                       | Phase   | Task IDs  | Jira Key  |
-|-------------|---------------------------------------------|---------|-----------|-----------|
-| Story       | Bootstrap project and install dependencies  | Phase 1 | T001–T002 | (not created) |
-| (desc-only) | Foundation (≤3 tasks — tasks in description)| Phase 2 | T003–T005 | (not created) |
-| Story       | Implement SMS delivery pipeline             | Phase 3 | T006–T014 | (not created) |
-| Sub-task    | ↳ Implement TelnyxAdapter send method       | Phase 3 | T006      | (not created) |
+| Level       | Title                                       | Jira Key      |
+|-------------|---------------------------------------------|---------------|
+| Task        | Bootstrap project and install dependencies  | (not created) |
+| Sub-task    |   ↳ Create project structure               | (not created) |
+| Sub-task    |   ↳ Install and configure dependencies     | (not created) |
+| Task (desc) | Polish and cross-cutting cleanup            | (not created) |
 ...
 
-_No Jira tickets were created. To create them, run `/speckit.jira.taskstotickets` without `--dry-run`._
+_No Jira tickets were created. To create them, run without `--dry-run`._
 ```
 
 ---
 
-### ── WRITE PHASE (Jira writes — only reached after "yes") ───────────────────
+### ── WRITE PHASE (only reached after "yes") ──────────────────────────────────
 
-### Step 9 — Create or Confirm Epic
+### Step 10 — Set Story Points
 
-**If `EPIC_KEY` is set** (existing Epic): use it directly.
+If `PARENT_KEY` is set, apply `ESTIMATED_POINTS` to the parent:
+- No existing points → confirm, then call `updateJiraIssue`.
+- Existing points differ → show both, ask to update or keep.
+- Existing points match → report "aligned" and move on.
 
-**If `EPIC_TO_CREATE` is set** (new Epic): call `createJiraIssue` with:
-- Issue type: `EPIC_TYPE`
-- Summary: `EPIC_TO_CREATE`
+---
 
-Update `EPIC_KEY` with the newly created key.
+### Step 11 — Create Tickets
 
-### Step 10 — Set Story Points on Epic
+For each work unit in order:
 
-Read current story points from the Epic via `getJiraIssue`:
-- **No points (null/0)**: present `ESTIMATED_POINTS` with breakdown, ask to confirm,
-  then call `updateJiraIssue` to set.
-- **Points already set, matching estimate**: report "Aligned" and move on.
-- **Points already set, differing**: present both values with reasoning and offer
-  to update or keep existing.
+1. **Create the work-unit ticket** (`createJiraIssue`):
+   - **Summary**: title from Step 8
+   - **Issue type**: Sub-task (if `PARENT_KEY` set) or Task
+   - **Parent**: `PARENT_KEY` (if set)
+   - **Description**:
+     - *Checklist (sub-task-eligible)*: phase goal/purpose and checkpoint criteria only —
+       **do not include the task list**; individual tasks are captured as sub-tasks
+     - *Checklist (description-only)*: phase goal/purpose, checkpoint criteria, **and**
+       the full task list as a markdown checklist
+     - *Story-card*: full **Description** block and **Files to modify** list —
+       **do not include acceptance criteria**; those are captured as sub-tasks
 
-### Step 11 — Create Stories
+2. **Create one sub-task per item** under the work-unit ticket (`createJiraIssue`):
+   - *Checklist*: one per incomplete `- [ ] T00N` task line, except description-only phases
+   - *Story-card*: one per incomplete acceptance criterion (`- [ ] …`)
+   - **Summary**: sub-task title from Step 8
+   - **Issue type**: Sub-task
+   - **Parent**: the work-unit ticket key just created
+   - **Description**:
+     - *Checklist*: full original task line including file paths and any `[P]`/`[US#]` markers
+     - *Story-card*: the full criterion text
 
-For each phase in `planned_tickets` (skip fully-completed phases):
+3. **Link dependencies** (story-card only): for each work unit with a non-empty
+   **Dependencies** field, call `createJiraIssueLink` to add "blocks"/"is blocked by" links.
 
-Call `createJiraIssue` with:
-- **Summary**: the Story title from Step 7
-- **Description** (Markdown):
-  - *Subtask-eligible phase*: phase goal/purpose and checkpoint criteria only —
-    **do not include the full task list** (individual tasks are captured as Sub-tasks)
-  - *Description-only phase* (skip-subtasks): phase goal/purpose, checkpoint criteria,
-    **and** the full task list as a markdown checklist (since no Sub-tasks will be created)
-- **Issue type**: `STORY_TYPE`
-- **Parent / Epic Link**: `EPIC_KEY`
+Report progress after each ticket:
+`✓ PROJ-456 Implement SMS delivery pipeline · 3 sub-tasks created`
 
-Record `phase_story_map[phase_N] = STORY_KEY`.
+---
 
-> [!CAUTION]
-> SKIP phases where ALL tasks are `- [x]`.
-
-### Step 12 — Create Sub-tasks
-
-For each phase in `planned_tickets` where `subtasks` is non-empty:
-
-For each sub-task entry, call `createJiraIssue` with:
-- **Summary**: the sub-task summary from Step 7
-- **Description**: the full raw task line from tasks.md (for traceability)
-- **Issue type**: `SUBTASK_TYPE`
-- **Parent**: `phase_story_map[phase_N]`
-
-Record `subtask_map[T00X] = SUBTASK_KEY`.
-
-### Step 13 — Persist jira-map.md
+### Step 12 — Persist jira-map.md
 
 > [!CAUTION]
-> **Only write `jira-map.md` after ALL `createJiraIssue` calls in Steps 11–12
-> have returned successfully.** If any create call fails, report the error and
-> **STOP** — do not write a partial map. A partial `jira-map.md` will cause
-> `implement` to reference tickets that do not exist.
->
-> If a `jira-map.md` already exists from a previous run, **overwrite it in full**
-> (never append). Partial or appended maps are a source of stale-key bugs.
+> **Only write `jira-map.md` after ALL `createJiraIssue` calls in Step 11 succeed.**
+> If any call fails, report the error and **STOP** — do not write a partial map.
+> Overwrite any existing `jira-map.md` in full; never append.
 
 Write `FEATURE_DIR/jira-map.md`:
 
 ```markdown
 # Jira Task Map
 
-**Project**: PROJ | **Epic**: PROJ-100 | **Created**: YYYY-MM-DD
+**Project**: PROJ | **Parent**: PROJ-100 (or "None") | **Created**: YYYY-MM-DD
 
-## Story Map
-
-| Story Key | Task IDs | Phase |
-|-----------|----------|-------|
-| PROJ-456  | T006, T007, T008, T009, T010, T011, T012, T013, T014 | Phase 3: Implement SMS delivery pipeline |
-| PROJ-457  | T001, T002 | Phase 1: Set up notification infrastructure |
-
-## Sub-task Map
-
-| Sub-task Key | Task ID | Story Key |
-|--------------|---------|-----------|
-| PROJ-460     | T006    | PROJ-456  |
-| PROJ-461     | T007    | PROJ-456  |
+| Phase Ticket | Sub-task | Task ID | Description |
+|--------------|----------|---------|-------------|
+| PROJ-456 Implement SMS delivery pipeline | PROJ-460 | T001 | Create adapter |
+| PROJ-456 Implement SMS delivery pipeline | PROJ-461 | T002 | Add retry logic |
+| PROJ-457 Bootstrap project dependencies | — | T003–T005 | (description-only) |
 ```
 
-- **Story Map**: one row per created Story. Primary index consumed by `/speckit.jira.implement`.
-- **Sub-task Map**: one row per Sub-task. Omit the section entirely if no sub-tasks were created.
+- One row per sub-task; description-only phases use `—` in the Sub-task column.
+- The Phase Ticket column repeats the key+title for each of its sub-tasks.
+- This file is consumed by `/speckit.jira.implement`.
 
-### Step 14 — Report
+---
 
-Output a summary:
+### Step 13 — Report
 
 - Path to `jira-map.md`
-- Epic key and title
-- One line per Story: `PROJ-NNN → Phase N: <title> (<N> tasks, <M> sub-tasks or "no sub-tasks")`
-- Total Stories created, total Sub-tasks created
-- Story points set/updated/unchanged on the Epic
-- Clickable link to the Epic on the Jira board
+- One line per phase ticket: key → title · N sub-tasks created
+- Total phase tickets and sub-tasks created
+- Parent ticket and story points applied (if applicable)
+- Clickable link to the parent ticket or Jira board

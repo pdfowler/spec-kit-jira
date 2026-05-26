@@ -1,56 +1,93 @@
 # spec-kit-jira
 
-A [Spec Kit](https://github.com/github/spec-kit) extension that integrates Jira into the spec-to-implementation workflow. Converts spec tasks into a three-tier Jira hierarchy and scopes implementation to individual tickets.
+A [Spec Kit](https://github.com/github/spec-kit) extension that bridges your spec-driven development workflow with Jira. After you generate tasks with `/speckit.tasks`, this extension creates a three-tier Jira hierarchy, provides a mandatory preview before writing anything, and keeps ticket status in sync as you implement.
 
-## What it does
-
-This extension adds two commands:
+## Commands
 
 | Command | Description |
 |---------|-------------|
-| `/speckit.jira.taskstotickets` | Converts `tasks.md` phases into a three-tier Jira hierarchy (Epic → Story → Sub-task) with a mandatory preview before any writes. Supports `--dry-run`. |
-| `/speckit.jira.implement` | Runs implementation scoped to a single Jira Story's tasks; closes Sub-tasks and the Story in Jira as work completes. |
+| `/speckit.jira.taskstotickets` | Converts `tasks.md` phases into Jira tickets (Epic → Story → Sub-task) with a dry-run preview gate |
+| `/speckit.jira.implement` | Runs implementation scoped to a single Jira Story; closes Sub-tasks and the Story as work completes |
 
-The workflow is:
+## How it works
 
-1. **Generate tasks** with `/speckit.tasks` (core command)
-2. **Preview and create Jira tickets** with `/speckit.jira.taskstotickets` — see exactly what will be created before committing
-3. **Implement by ticket** with `/speckit.jira.implement PROJ-456` — executes only the tasks mapped to that Story
+Two task formats are supported:
 
-## Hierarchy
+### Checklist format (`/speckit.tasks` default output)
 
 ```
-Epic   (one per spec version — the sprint/time organizing unit)
-  └── Story    (one per ## Phase N: in tasks.md — primary board visibility)
-        └── Sub-task  (one per T00X item — granular implementation tracking)
+tasks.md phases                  Jira hierarchy
+────────────────                 ──────────────────────────────────────────
+## Phase 1: Setup          →     (description-only: tasks embedded in ticket)
+## Phase 2: Core logic     →     Ticket: Implement core business logic
+                                   └── Sub-task: Add input validation
+                                   └── Sub-task: Wire service layer
+## Phase 3: API layer      →     Ticket: Expose REST endpoints
+                                   └── Sub-task: Create route handlers
+                                   └── Sub-task: Add request DTOs
+## Phase 4: Polish/QA      →     (description-only: tasks embedded in ticket)
 ```
 
-Sub-tasks are created selectively. Phases are auto-skipped when their name contains
-`setup`, `foundation`, `prereq`, `infra`, or similar, or when they have ≤ 3 tasks.
-All other phases are shown in the preview and created when you confirm.
+**Sub-tasks are created selectively.** Phases are description-only when:
+- Phase has ≤ 3 incomplete tasks, **or**
+- Phase name contains: `setup`, `foundation`, `foundational`, `prereq`,
+  `prerequisite`, `infrastructure`, `infra`, `polish`, `cross-cutting`, `cleanup`,
+  `qa`, `validation`, `hardening`, `final`
+
+**Ticket titles are clean, action-oriented summaries** — no "Phase N:" prefix.
+
+### Story-card format
+
+```
+tasks.md story cards                        Jira hierarchy
+───────────────────────────────             ────────────────────────────────────
+### AUTH-001: Auth middleware setup    →    Ticket: Auth middleware setup
+**Acceptance Criteria**:                     └── Sub-task: Token validation passes
+- [ ] Token validation passes                └── Sub-task: 401 for expired tokens
+- [ ] 401 returned for expired tokens        └── Sub-task: Middleware in NestJS
+- [ ] Middleware integrated                **Dependencies** → Jira issue links
+**Dependencies**: AUTH-000
+```
+
+Sub-tasks are created from acceptance criteria. Dependencies become Jira issue links.
 
 ## Requirements
 
 - [Spec Kit](https://github.com/github/spec-kit) >= 0.8.3
-- [Atlassian MCP server](https://www.npmjs.com/package/@anthropic/atlassian-mcp-server) configured and enabled
+- An [Atlassian MCP server](https://marketplace.atlassian.com/apps/1234567/atlassian-remote-mcp-server)
+  configured in your AI agent (Cursor, Claude Code, etc.)
 - A Jira Cloud instance accessible via the MCP server
+
+### Setting up the Atlassian MCP
+
+The extension uses the Atlassian Remote MCP Server. To configure it:
+
+1. Visit [id.atlassian.com](https://id.atlassian.com) → **Security** → **API tokens**
+   (or use OAuth — recommended for broader tool access)
+2. In your AI agent, add the MCP server and authenticate
+3. Verify the agent can see your Jira projects before installing this extension
+
+> **Note:** OAuth authentication gives access to the full set of Jira MCP tools.
+> API token scopes can be narrower — if you see only a limited tool set, switch to OAuth.
 
 ## Installation
 
-### From this fork's catalog
+### Via catalog (recommended)
 
 ```bash
+# Add the catalog
 specify extension catalog add https://raw.githubusercontent.com/pdfowler/spec-kit-jira/main/catalog.json \
-  --name pdfowler-spec-kit-jira \
-  --install-allowed
+  --name pdfowler-jira
 
+# Install the extension
 specify extension add jira
 ```
 
-Or install from the repository directly:
+### Directly from repository
 
 ```bash
-specify extension add jira --from https://github.com/pdfowler/spec-kit-jira/archive/refs/heads/main.zip
+specify extension add jira \
+  --from https://github.com/pdfowler/spec-kit-jira/archive/refs/heads/main.zip
 ```
 
 ### From a local clone
@@ -61,110 +98,157 @@ cd /path/to/your-speckit-project
 specify extension add --dev /path/to/spec-kit-jira
 ```
 
-After installation, verify:
+### Verify installation
 
 ```bash
 specify extension list
-
-# Should show:
-#  ✓ Jira Integration (v1.1.0)
-#     Three-tier Jira hierarchy (Epic → Story → Sub-task) from spec tasks, with dry-run preview
+# ✓ Jira Integration (v1.2.0)
+#     Three-tier Jira hierarchy (Epic → Story → Sub-task) with dry-run preview
 #     Commands: 2 | Hooks: 1 | Status: Enabled
 ```
 
+### Namespace customization
+
+By default the commands are registered as `speckit.jira.*`. If your project uses a
+custom command prefix (e.g. `sdd`), add a `.specify/config.yml` at your project root:
+
+```yaml
+namespace:
+  command_prefix: sdd   # commands become /sdd.jira.taskstotickets, /sdd.jira.implement
+```
+
+Then re-run your init script (or `specify integration install`) to apply the rename.
+
 ## Usage
 
-### Dry run — preview without creating tickets
-
-```
-/speckit.jira.taskstotickets --dry-run
-```
-
-Builds the full plan and saves a `jira-plan.md` preview file. No Jira issues are
-created. Useful for reviewing the ticket structure before committing.
-
-You can also pass an existing Epic key:
-
-```
-/speckit.jira.taskstotickets PROJ-100 --dry-run
-```
-
-### Creating Jira tickets from tasks
+### 1. Create tickets from tasks
 
 ```
 /speckit.jira.taskstotickets
 ```
 
-The command will:
+The command walks you through:
 
-1. Ask you to confirm or create the Epic for this spec version
-2. Plan Stories (one per `## Phase N:` header) and Sub-tasks (for substantial phases)
-3. Show a full preview table with proposed titles, task IDs, and story point estimate
-4. Ask: **Proceed? (yes / no / save-plan-only)**
-5. On confirmation: create Epic (if new), Stories, Sub-tasks, write `jira-map.md`
+1. **Parent ticket** — provide an Epic/Story key to nest tickets under it, or `none`
+   for standalone tickets (can also be passed as a direct argument)
+2. **Plan** — detects format (checklist or story-card), builds the full ticket hierarchy,
+   estimates story points
+3. **Preview** — shows everything that will be created before any Jira writes
 
-You can skip the Epic prompt by providing the key upfront:
+   ```
+   Epic: ENG-100 "Two-Way SMS v1" (existing)
+   Estimated story points: 5  (3 phases, 17 tasks, 1 external integration)
+
+   | Level       | Title                               | Phase   | Task IDs  |
+   |-------------|-------------------------------------|---------|-----------|
+   | Story       | Bootstrap project dependencies      | Phase 1 | T001–T002 |
+   | (desc-only) | ← ≤3 tasks, tasks in description    | Phase 2 | T003–T005 |
+   | Story       | Implement SMS delivery pipeline     | Phase 3 | T006–T014 |
+   | Sub-task    |   ↳ Implement adapter send method   | Phase 3 | T006      |
+   | Sub-task    |   ↳ Add retry with backoff          | Phase 3 | T007      |
+   | Story       | Add delivery audit trail            | Phase 4 | T015–T019 |
+
+   → Proceed? (yes / no / save-plan-only)
+   ```
+
+4. **Create** — on `yes`, creates Epic (if new), Stories, and Sub-tasks; writes `jira-map.md`
+
+Pass an Epic key to skip the prompt:
 
 ```
-/speckit.jira.taskstotickets PROJ-100
+/speckit.jira.taskstotickets ENG-100
 ```
 
-### Implementing by ticket
+### 2. Dry run — preview without creating
+
+```
+/speckit.jira.taskstotickets --dry-run
+/speckit.jira.taskstotickets ENG-100 --dry-run
+```
+
+Saves the preview as `jira-plan.md` in your feature directory. No Jira issues are
+created and no `jira-map.md` is written.
+
+### 3. Implement by ticket
 
 ```
 /speckit.jira.implement
 ```
 
-With no arguments, the command shows a status table and auto-selects the next
-incomplete Story. You can also target a specific Story:
+Shows a status table and auto-selects the next incomplete Story. Provide a key to
+target a specific Story:
 
 ```
-/speckit.jira.implement PROJ-456
+/speckit.jira.implement ENG-456
 ```
 
-As tasks complete, the command:
-- Marks each `T00X` as `[x]` in `tasks.md`
-- Closes the corresponding Sub-task in Jira (if one was created)
-- Closes the Story in Jira when all tasks in the phase are done
+As each task completes:
+
+- The task is marked `[x]` in `tasks.md`
+- The corresponding Sub-task is closed in Jira (if one was created)
+- When all tasks in the phase are done, the Story is closed in Jira
+
+```
+✓ T006 done — ENG-460 closed (3/9 tasks in ENG-456)
+✓ T007 done — ENG-461 closed (4/9 tasks in ENG-456)
+...
+✓ All tasks complete — Story ENG-456 closed.
+```
 
 ### Hook: after_tasks
 
-When enabled, the extension prompts you to create Jira tickets automatically
-after `/speckit.tasks` completes.
+The extension registers an optional `after_tasks` hook. When enabled, your agent
+will prompt you to create Jira tickets immediately after `/speckit.tasks` completes —
+no separate command invocation needed.
+
+```yaml
+# .specify/extensions.yml (auto-generated)
+hooks:
+  after_tasks:
+  - extension: jira
+    command: speckit.jira.taskstotickets
+    enabled: true
+    optional: true
+    prompt: "Create Jira tickets for the generated tasks?"
+```
 
 ## Artifacts
 
-### jira-plan.md
+### `jira-plan.md`
 
-Written by `--dry-run` or the `save-plan-only` response to the preview prompt.
-Shows the full planned ticket hierarchy with proposed titles. Does **not** contain
-real Jira keys — for review only.
+Written by `--dry-run` or the `save-plan-only` response. Human-readable preview of
+the planned ticket hierarchy — safe to share or commit for review before creating
+anything in Jira.
 
-### jira-map.md
+### `jira-map.md`
 
-Written after tickets are successfully created. Maps Story keys to task IDs and
-phases; consumed by `/speckit.jira.implement`.
+Written after tickets are created. Maps Story keys to task IDs and phases; consumed
+by `/speckit.jira.implement` to scope implementation to individual tickets.
 
 ```markdown
 # Jira Task Map
 
-**Project**: PROJ | **Epic**: PROJ-100 | **Created**: 2026-05-26
+**Project**: ENG | **Epic**: ENG-100 | **Created**: 2026-05-26
 
 ## Story Map
 
-| Story Key | Task IDs | Phase |
-|-----------|----------|-------|
-| PROJ-456  | T006, T007, T008 | Phase 3: Implement delivery pipeline |
-| PROJ-457  | T001, T002       | Phase 1: Set up infrastructure       |
+| Story Key | Task IDs             | Phase                       |
+|-----------|----------------------|-----------------------------|
+| ENG-456   | T006, T007, T008     | Phase 3: Implement pipeline |
+| ENG-457   | T001, T002           | Phase 1: Setup              |
 
 ## Sub-task Map
 
 | Sub-task Key | Task ID | Story Key |
 |--------------|---------|-----------|
-| PROJ-460     | T006    | PROJ-456  |
-| PROJ-461     | T007    | PROJ-456  |
+| ENG-460      | T006    | ENG-456   |
+| ENG-461      | T007    | ENG-456   |
 ```
+
+## Changelog
+
+See [CHANGELOG.md](./CHANGELOG.md).
 
 ## License
 
-MIT
+MIT — [Patrick Fowler](https://github.com/pdfowler)

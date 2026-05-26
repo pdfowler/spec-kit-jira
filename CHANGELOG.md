@@ -1,5 +1,48 @@
 # Changelog
 
+## [1.3.0] - 2026-05-26
+
+### Added
+
+- **Story-card format support** in `taskstotickets`: detects a second task format
+  (`### PREFIX-NNN: Title` with Name / Description / Acceptance Criteria / Dependencies
+  blocks) alongside the existing checklist format. Both formats map cleanly to the same
+  Jira hierarchy; sub-tasks are created from acceptance criteria instead of task lines.
+  Includes story-card-specific title rules (use Name field directly) and dependency
+  linking via `createJiraIssueLink`.
+
+- **`--parent` / PARENT_KEY flow** replaces the previous Epic create/confirm/reuse
+  flow. If a Jira key is in `$ARGUMENTS` it is used directly; otherwise the user is
+  prompted once with a plain "key or none" question. This works for any issue type
+  (Epic, Story, Task) as the parent — not just Epics.
+
+- **Checklist status gate** in `implement`: if `checklists/` exists, all files are
+  scanned and a pass/fail table is shown before implementation begins.
+
+- **Project setup verification** in `implement`: detect and create/verify ignore files
+  (`.gitignore`, `.dockerignore`, `.eslintignore`, etc.) based on the detected tech stack.
+
+### Changed
+
+- **Flat `jira-map.md` schema** replaces the previous Story Map + Sub-task Map
+  two-section format. The new format is a single table:
+  `| Phase Ticket | Sub-task | Task ID | Description |`
+  Description-only phases use `—` in the Sub-task column. This format is simpler
+  to parse and scan at a glance.
+
+- **`implement` command** updated to parse the flat `jira-map.md` schema and
+  display a richer status table (Phase Ticket | Title | Task IDs | Progress | Status).
+
+- **Step numbers in `taskstotickets`** renumbered to reflect the new flow:
+  Steps 0–13 (was 1–14 with different structure).
+
+- **`extension.yml` removes the `requires.commands` list** — the extension works
+  alongside core Spec Kit commands but does not formally depend on them by name.
+
+> **Migration note**: existing `jira-map.md` files written by v1.x use the old
+> Story Map / Sub-task Map format. Re-run `/speckit.jira.taskstotickets` to
+> generate a fresh `jira-map.md` in the new format before using `implement`.
+
 ## [1.2.1] - 2026-05-26
 
 ### Fixed

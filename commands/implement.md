@@ -1,5 +1,5 @@
 ---
-description: Execute implementation scoped to a single Jira Story's tasks using the jira-map.md mapping produced by /speckit.jira.taskstotickets. Updates Sub-task and Story status in Jira as tasks complete.
+description: Run implementation scoped to a single phase ticket's tasks from jira-map.md; closes sub-tasks and the phase ticket in Jira as work completes.
 tools:
   - 'Atlassian/getAccessibleAtlassianResources'
   - 'Atlassian/getJiraIssue'
@@ -18,9 +18,9 @@ $ARGUMENTS
 
 You **MUST** consider the user input before proceeding (if not empty).
 
-The user may optionally provide a **Jira Story key** (e.g., `PROJ-456`). When provided,
-only the tasks mapped to that Story are implemented. When omitted, the command
-auto-selects the next incomplete Story.
+The user may optionally provide a **Jira phase ticket key** (e.g., `PROJ-456`). When
+provided, only tasks mapped to that ticket are implemented. When omitted, the command
+auto-selects the next incomplete ticket.
 
 ---
 
@@ -29,60 +29,58 @@ auto-selects the next incomplete Story.
 ### Step 1 — Load Feature Context
 
 Run `{SCRIPT} --json --require-tasks --include-tasks` from repo root and parse
-`FEATURE_DIR` and `AVAILABLE_DOCS` list. All paths must be absolute.
+`FEATURE_DIR` and `AVAILABLE_DOCS`. All paths must be absolute.
+
+---
 
 ### Step 2 — Load and Validate jira-map.md
 
 Read `FEATURE_DIR/jira-map.md`.
 
-If the file does not exist, **STOP** and report:
-> "No Jira mapping found. Run `/speckit.jira.taskstotickets` first to create tickets and generate the mapping."
+If the file does not exist, **STOP**:
+> "No Jira mapping found. Run `/speckit.jira.taskstotickets` first to create tickets
+> and generate the mapping."
 
-Parse the file into two structures:
-- **Story Map**: the `## Story Map` table — maps Story Key → Task IDs → Phase name.
-- **Sub-task Map** (optional): the `## Sub-task Map` table — maps Sub-task Key → Task ID → Story Key.
-  If this section is absent, sub-task status updates are skipped silently.
+Parse the flat table:
+- **Phase tickets**: unique Phase Ticket column values (first space-delimited token
+  is the key; the rest is the title)
+- **Sub-task index**: Sub-task key keyed by Task ID (skip rows where Sub-task is `—`)
 
-Also extract `**Epic**: PROJ-NNN` from the header for reference.
+Extract `**Parent**: PROJ-NNN` from the header for reference.
 
-**Validate the map is not stale** — before doing any implementation work, call
-`getJiraIssue` on the **first Story key** in the Story Map:
-- If the issue exists: proceed.
-- If the issue does NOT exist (404 / not visible):
-  - **STOP** and report:
-    > "⚠ jira-map.md references {STORY_KEY} but that issue was not found in Jira.
-    > The map may be from a failed or dry-run execution. Run `/speckit.jira.taskstotickets`
-    > to create tickets and regenerate the mapping."
-  - Do **not** attempt to implement or update any Jira tickets.
+**Validate the map is not stale**: call `getJiraIssue` on the first Phase Ticket key.
+- If it exists: proceed.
+- If it does NOT exist: **STOP**:
+  > "⚠ jira-map.md references {KEY} but that issue was not found in Jira. The map
+  > may be from a failed or partial previous run. Run `/speckit.jira.taskstotickets`
+  > to create tickets and regenerate the mapping."
 
-### Step 3 — Determine Target Story
+---
 
-**If the user provided a Story key**:
-- Look it up in the Story Map to find the matching Task IDs and phase.
-- If the key is not found, **STOP** and report the error with the list of available Story keys.
+### Step 3 — Determine Target Ticket
 
-**If no Story key was provided**:
-- Cross-reference each Story's Task IDs against `tasks.md` completion status.
-- Display a status table:
+**If the user provided a key**: look it up in the Phase Ticket column.
+- If not found: **STOP** and list available phase ticket keys.
 
-  ```text
-  | Story Key  | Phase                      | Progress | Sub-tasks | Status    |
-  |------------|----------------------------|----------|-----------|-----------|
-  | PROJ-450   | Phase 1: Setup             | 2/2      | none      | ✓ Done    |
-  | PROJ-451   | Phase 2: Foundational      | 5/5      | none      | ✓ Done    |
-  | PROJ-456   | Phase 3: User Story 1      | 0/9      | 9 mapped  | ○ Next    |
-  | PROJ-457   | Phase 4: User Story 2      | 0/7      | 7 mapped  | ○ Pending |
-  ```
+**If no key provided**: cross-reference each phase ticket's Task IDs against
+`tasks.md` completion status and display a status table:
 
-  The `Sub-tasks` column shows "N mapped" when the Sub-task Map has entries for that Story,
-  or "none" when sub-tasks were not created for that phase.
+```text
+| Phase Ticket | Title                                | Task IDs  | Progress | Status    |
+|--------------|--------------------------------------|-----------|----------|-----------|
+| PROJ-450     | Bootstrap project dependencies       | T001–T002 | 2/2      | ✓ Done    |
+| PROJ-456     | Implement SMS delivery pipeline      | T003–T011 | 0/9      | ○ Next    |
+| PROJ-457     | Add delivery audit trail             | T012–T015 | 0/4      | ○ Pending |
+```
 
-- Auto-select the first Story with incomplete tasks (by phase order in tasks.md)
-  and confirm with the user before proceeding.
+Auto-select the first ticket with incomplete tasks (by order in jira-map.md) and
+confirm with the user before proceeding.
 
-### Step 4 — Check Checklists (if present)
+---
 
-If `FEATURE_DIR/checklists/` exists, scan all checklist files and build a status table:
+### Step 4 — Check Checklists
+
+If `FEATURE_DIR/checklists/` exists, scan all checklist files:
 
 ```text
 | Checklist   | Total | Completed | Incomplete | Status  |
@@ -91,30 +89,34 @@ If `FEATURE_DIR/checklists/` exists, scan all checklist files and build a status
 | test.md     | 8     | 5         | 3          | ✗ FAIL  |
 ```
 
-- **All pass**: proceed automatically.
-- **Any fail**: display the table, **STOP**, and ask:
-  `"Some checklists are incomplete. Proceed with implementation anyway? (yes/no)"`
+- All pass → proceed automatically.
+- Any fail → display table and ask:
+  **"Some checklists are incomplete. Proceed with implementation anyway? (yes/no)"**
+
+---
 
 ### Step 5 — Load Implementation Context
 
-- **REQUIRED**: Read tasks.md
-- **REQUIRED**: Read plan.md
-- **IF EXISTS**: Read data-model.md, contracts/, research.md, quickstart.md
+- **REQUIRED**: Read `tasks.md` (full task list and execution plan)
+- **REQUIRED**: Read `plan.md` (tech stack, architecture, file structure)
+- **IF EXISTS**: Read `data-model.md`, `contracts/`, `research.md`, `quickstart.md`
+
+---
 
 ### Step 6 — Project Setup Verification
 
 Create or verify ignore files based on detected project setup:
 
 - `git rev-parse --git-dir` succeeds → verify `.gitignore`
-- Dockerfile present or Docker mentioned in plan.md → verify `.dockerignore`
+- Dockerfile present or Docker mentioned in `plan.md` → verify `.dockerignore`
 - `.eslintrc*` or `eslint.config.*` present → verify `.eslintignore` / `ignores` entries
 - `.prettierrc*` present → verify `.prettierignore`
-- `package.json` present → verify `.npmignore` (if publishing)
+- `package.json` present (if publishing) → verify `.npmignore`
 - `*.tf` files present → verify `.terraformignore`
 - Helm charts present → verify `.helmignore`
 
-**If ignore file already exists**: append only missing critical patterns.
-**If ignore file missing**: create with full pattern set for detected technology.
+**If ignore file exists**: append only missing critical patterns.
+**If ignore file missing**: create with full pattern set for the detected technology.
 
 Common patterns by technology:
 - **Node.js/TypeScript**: `node_modules/`, `dist/`, `build/`, `*.log`, `.env*`
@@ -123,74 +125,79 @@ Common patterns by technology:
 - **Go**: `*.exe`, `*.test`, `vendor/`, `*.out`
 - **Universal**: `.DS_Store`, `Thumbs.db`, `*.tmp`, `*.swp`
 
+---
+
 ### Step 7 — Verify Phase Prerequisites
 
-Before executing tasks for the target Story, verify that all earlier phases in the
-Story Map are fully complete (`- [x]` for every Task ID in those rows).
+Before executing, verify all earlier phase tickets in `jira-map.md` are fully complete
+(`- [x]` for every Task ID in those rows).
 
-If any earlier phase has incomplete tasks, **STOP** and report:
-> "Phase N (PROJ-NNN) must be completed before starting this phase."
+If any earlier phase has incomplete tasks, **STOP**:
+> "Phase ticket PROJ-NNN must be completed before starting this phase."
+
+---
 
 ### Step 8 — Execute Tasks
 
-Filter tasks.md to the Task IDs in the target Story's row. Preserve execution
-order and dependency/parallel rules from tasks.md.
+Filter `tasks.md` to the Task IDs in the target ticket's rows. Preserve execution
+order and dependency/parallel rules from `tasks.md`.
 
 - **Respect dependencies**: sequential tasks in order; parallel tasks `[P]` can run together.
-- **TDD approach**: execute test tasks before their corresponding implementation tasks.
+- **TDD approach**: write failing tests before their corresponding implementation.
 - **File coordination**: tasks affecting the same files run sequentially.
 
-Implementation rules:
-1. Setup → dependencies/config first
-2. Tests (write failing tests before implementation)
-3. Core models, services, endpoints
+Implementation order:
+1. Setup — dependencies, configuration
+2. Tests — write failing tests before implementation code
+3. Core — models, services, endpoints
 4. Integration — external services, middleware, logging
 5. Polish — cleanup, docs, performance
 
+---
+
 ### Step 9 — Track Progress and Update Jira
 
-After **each task** (T00X) is completed and marked `[x]` in tasks.md:
+After **each task** (T00X) is marked `[x]` in tasks.md:
 
-**A. Update Sub-task in Jira** (if Sub-task Map has an entry for this Task ID):
-- Look up `T00X` in the Sub-task Map → get `SUBTASK_KEY`.
-- Call `updateJiraIssue` to transition `SUBTASK_KEY` to the project's "Done" status.
-- If the transition fails (e.g., workflow restriction), log a warning and continue —
-  do not halt implementation over a status update failure.
+**A. Close sub-task in Jira** (if a sub-task key exists for this Task ID):
+- Call `updateJiraIssue` to transition the sub-task to "Done".
+- If the transition fails, log a warning and continue — do not halt over a status failure.
 
-**B. Report task progress**: after each task, output a one-line status:
+**B. Report one-line progress**:
 ```text
-✓ T006 done — PROJ-460 closed (3/9 tasks in PROJ-456)
-```
-Or, if no sub-task mapped:
-```text
-✓ T001 done (1/2 tasks in PROJ-450)
+✓ T006 done — PROJ-460 closed  (3/9 tasks in PROJ-456)
+✓ T001 done  (1/2 tasks in PROJ-450)           ← no sub-task mapped
 ```
 
-If any non-parallel task fails, halt and provide a clear error with context.
-For parallel tasks `[P]`, continue with successful ones and report failures at the end.
+Halt on any non-parallel task failure. For parallel tasks `[P]`, continue with
+successful ones and report failures at the end.
 
-### Step 10 — Close Story on Phase Completion
+---
 
-When ALL Task IDs for the target Story are marked `[x]` in tasks.md:
+### Step 10 — Close Phase Ticket on Completion
 
-- Call `updateJiraIssue` to transition the **Story** (`STORY_KEY`) to "Done".
-- If the transition requires an intermediate status (e.g., "In Review"), use whatever
-  the project's workflow requires — call `getJiraIssue` to inspect available transitions
-  if needed.
+When ALL Task IDs for the target ticket are marked `[x]` in tasks.md:
+
+- Call `updateJiraIssue` to transition the **phase ticket** to "Done".
+  - If an intermediate status is required (e.g., "In Review"), call `getJiraIssue`
+    to inspect available transitions and apply the correct one.
 
 Report:
 ```text
-✓ All tasks complete — Story PROJ-456 (Phase 3: User Story 1) closed.
+✓ All tasks complete — PROJ-456 (Implement SMS delivery pipeline) closed.
 ```
+
+---
 
 ### Step 11 — Completion Report
 
 Output final status:
-- Story key, phase name, tasks completed: `PROJ-456 — Phase 3: User Story 1 — 9/9 tasks`
+- Phase ticket key, title, tasks completed:
+  `PROJ-456 — Implement SMS delivery pipeline — 9/9 tasks`
 - Sub-tasks closed (if any): `9/9 sub-tasks closed`
 - Summary of work done
-- Suggested next Story to implement (next incomplete row in the Story Map)
+- Suggested next ticket (next incomplete row in `jira-map.md`)
 
-Note: This command requires `jira-map.md` in the feature directory. If missing, run
-`/speckit.jira.taskstotickets` first. For full (unscoped) implementation without Jira
-integration, use `/speckit.implement` instead.
+Note: This command requires `jira-map.md`. If missing, run
+`/speckit.jira.implement` first. For full (unscoped) implementation without
+Jira integration, use `/speckit.implement` instead.
