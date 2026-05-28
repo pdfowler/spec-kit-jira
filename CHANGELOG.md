@@ -1,5 +1,34 @@
 # Changelog
 
+## [1.4.0] - 2026-05-27
+
+### Added
+
+- **Default Jira progress policy** at `config/jira-progress-policy.yml`. Projects can
+  copy it to `.specify/jira-progress-policy.yml` to customize semantic statuses,
+  monotonic transition behavior, task classification, commit requirements, local
+  quality gates, PR review gates, and phase completion gates.
+
+- **Event-based progress recording** in `implement`: phase/task start, task commit,
+  local gate success, PR open, remote check success, and PR merge are modeled as
+  separate events instead of collapsing everything into "Done" when a task is checked off.
+
+- **Configurable TDD/test-task handling**: red-phase test tasks default to `in_review`
+  on commit and move to `done` only when the configured done gate is satisfied.
+
+### Changed
+
+- `implement` now uses Jira workflow transitions (`getTransitionsForJiraIssue` +
+  `transitionJiraIssue`) rather than treating status as a field update.
+
+- Phase tickets no longer move to `Done` just because all local task checkboxes are
+  checked. By default, sub-tasks require local gates and phase tickets require a
+  merged PR before moving to `Done`.
+
+- `implement` now explicitly requires task/phase commits before Jira review/done
+  transitions. "Do not push" and "do not create PRs" are remote-operation restrictions;
+  they are not interpreted as "do not commit" unless explicitly stated.
+
 ## [1.3.0] - 2026-05-26
 
 ### Added

@@ -1,13 +1,13 @@
 # spec-kit-jira
 
-A [Spec Kit](https://github.com/github/spec-kit) extension that bridges your spec-driven development workflow with Jira. After you generate tasks with `/speckit.tasks`, this extension creates a three-tier Jira hierarchy, provides a mandatory preview before writing anything, and keeps ticket status in sync as you implement.
+A [Spec Kit](https://github.com/github/spec-kit) extension that bridges your spec-driven development workflow with Jira. After you generate tasks with `/speckit.tasks`, this extension creates a three-tier Jira hierarchy, provides a mandatory preview before writing anything, and records implementation progress with a configurable Jira status policy.
 
 ## Commands
 
 | Command | Description |
 |---------|-------------|
 | `/speckit.jira.taskstotickets` | Converts `tasks.md` phases into Jira tickets (Epic → Story → Sub-task) with a dry-run preview gate |
-| `/speckit.jira.implement` | Runs implementation scoped to a single Jira Story; closes Sub-tasks and the Story as work completes |
+| `/speckit.jira.implement` | Runs implementation scoped to a single Jira phase ticket; records sub-task and phase progress using policy-driven gates |
 
 ## How it works
 
@@ -102,7 +102,7 @@ specify extension add --dev /path/to/spec-kit-jira
 
 ```bash
 specify extension list
-# ✓ Jira Integration (v1.2.0)
+# ✓ Jira Integration (v1.4.0)
 #     Three-tier Jira hierarchy (Epic → Story → Sub-task) with dry-run preview
 #     Commands: 2 | Hooks: 1 | Status: Enabled
 ```
@@ -182,18 +182,50 @@ target a specific Story:
 /speckit.jira.implement ENG-456
 ```
 
-As each task completes:
+Implementation progress is controlled by `jira-progress-policy.yml` rather than a
+hardcoded "done when checked off" rule. By default:
 
-- The task is marked `[x]` in `tasks.md`
-- The corresponding Sub-task is closed in Jira (if one was created)
-- When all tasks in the phase are done, the Story is closed in Jira
+- Starting a phase or task moves the mapped Jira issue to `In Progress` when possible.
+- A local commit moves a mapped sub-task to `In Review`.
+- Passing local quality gates can move a mapped sub-task to `Done`.
+- A non-draft PR moves the phase ticket to `In Review`.
+- A merged PR moves the phase ticket to `Done`.
+- Done tickets are never moved backward by default.
 
 ```
-✓ T006 done — ENG-460 closed (3/9 tasks in ENG-456)
-✓ T007 done — ENG-461 closed (4/9 tasks in ENG-456)
+✓ T006 committed — ENG-460 moved to In Review (3/9 tasks in ENG-456)
+✓ T006 validated — ENG-460 moved to Done
 ...
-✓ All tasks complete — Story ENG-456 closed.
+✓ PR merged — ENG-456 moved to Done.
 ```
+
+### Progress policy
+
+The extension ships with a default policy at:
+
+```text
+config/jira-progress-policy.yml
+```
+
+Projects can copy it to:
+
+```text
+.specify/jira-progress-policy.yml
+```
+
+and customize status names, gates, and transition behavior without changing the
+extension. The implement command loads the project override first, then falls back
+to the extension default.
+
+Key policy knobs include:
+
+- Semantic Jira statuses: `todo`, `in_progress`, `in_review`, `done`
+- Monotonic transitions: prevent `Done` from moving backward
+- Sub-task done gate: `committed`, `local_gates_passed`, `remote_checks_passed`, or `explicit_confirm`
+- Phase done gate: `pr_merged`, `remote_checks_passed`, `local_gates_passed`, or `explicit_confirm`
+- Draft PR behavior: whether a draft PR counts as review
+- Test-task behavior: whether red-phase tests move to review or done
+- Local gate commands: project-specific test/lint/typecheck/build commands
 
 ### Hook: after_tasks
 
@@ -222,27 +254,20 @@ anything in Jira.
 
 ### `jira-map.md`
 
-Written after tickets are created. Maps Story keys to task IDs and phases; consumed
-by `/speckit.jira.implement` to scope implementation to individual tickets.
+Written after tickets are created. Maps phase ticket keys, sub-task keys, and task
+IDs; consumed by `/speckit.jira.implement` to scope implementation to individual
+tickets.
 
 ```markdown
 # Jira Task Map
 
-**Project**: ENG | **Epic**: ENG-100 | **Created**: 2026-05-26
+**Project**: ENG | **Parent**: ENG-100 | **Created**: 2026-05-26
 
-## Story Map
-
-| Story Key | Task IDs             | Phase                       |
-|-----------|----------------------|-----------------------------|
-| ENG-456   | T006, T007, T008     | Phase 3: Implement pipeline |
-| ENG-457   | T001, T002           | Phase 1: Setup              |
-
-## Sub-task Map
-
-| Sub-task Key | Task ID | Story Key |
-|--------------|---------|-----------|
-| ENG-460      | T006    | ENG-456   |
-| ENG-461      | T007    | ENG-456   |
+| Phase Ticket | Sub-task | Task ID | Description |
+|--------------|----------|---------|-------------|
+| ENG-456 Implement SMS delivery pipeline | ENG-460 | T006 | Create adapter |
+| ENG-456 Implement SMS delivery pipeline | ENG-461 | T007 | Add retry logic |
+| ENG-457 Bootstrap project dependencies | — | T001-T002 | (description-only) |
 ```
 
 ## Changelog

@@ -1,0 +1,155 @@
+# Default Jira progress policy for spec-kit-jira.
+#
+# Projects may copy this file to:
+#
+#   .specify/jira-progress-policy.yml
+#
+# and edit it without changing the extension. The implement command should load
+# the project file first and fall back to this default when no project override
+# exists.
+
+schema_version: "1.0"
+
+jira:
+  progress_policy:
+    # Semantic statuses are mapped to the actual status names in a Jira project.
+    # The command should discover available transitions for each issue and choose
+    # the first matching target status from these lists.
+    semantic_statuses:
+      todo:
+        - "To Do"
+        - "Backlog"
+      in_progress:
+        - "In Progress"
+        - "Selected for Development"
+      in_review:
+        - "In Review"
+        - "Code Review"
+        - "Review"
+      done:
+        - "Done"
+        - "Closed"
+        - "Resolved"
+
+    # Prevent accidental backward movement. For example, a Done ticket should
+    # not be moved back to In Progress by a rerun.
+    monotonic: true
+
+    # What to do when the requested semantic status cannot be mapped to a Jira
+    # transition for the current issue.
+    # Options: warn, stop, skip
+    on_missing_transition: "warn"
+
+    # Draft pull requests do not count as "in review" by default.
+    draft_pr_counts_as_review: false
+
+    # Remote branch push is a useful safety boundary for story/phase review, but
+    # teams can loosen this for purely local workflows.
+    require_remote_push_for_phase_review: true
+
+    # Merged PR is the default proof that a phase ticket can move to Done.
+    # Options: pr_merged, remote_checks_passed, local_gates_passed, explicit_confirm
+    phase_done_gate: "pr_merged"
+
+    # Sub-task completion is intentionally more flexible than phase completion.
+    # Options: committed, local_gates_passed, remote_checks_passed, explicit_confirm
+    subtask_done_gate: "local_gates_passed"
+
+    # TDD test-only tasks are tricky: a failing test may be a valid red-phase
+    # deliverable, but many repositories reject failing commits. This default
+    # keeps test tasks in review on commit and marks them done only when the
+    # related implementation makes local gates pass.
+    test_tasks:
+      match:
+        - "test"
+        - "failing test"
+        - "coverage"
+        - "contract test"
+      on_commit: "in_review"
+      done_gate: "local_gates_passed"
+
+    implementation_tasks:
+      on_commit: "in_review"
+      done_gate: "local_gates_passed"
+
+    documentation_tasks:
+      match:
+        - "docs"
+        - "documentation"
+        - "readme"
+      on_commit: "done"
+      done_gate: "committed"
+
+    transitions:
+      on_phase_start:
+        issue: "phase"
+        to: "in_progress"
+        only_from:
+          - "todo"
+
+      on_task_start:
+        issue: "subtask"
+        to: "in_progress"
+        only_from:
+          - "todo"
+
+      on_task_commit:
+        issue: "subtask"
+        to: "in_review"
+        only_from:
+          - "todo"
+          - "in_progress"
+
+      on_task_local_gates_passed:
+        issue: "subtask"
+        to: "done"
+        only_from:
+          - "todo"
+          - "in_progress"
+          - "in_review"
+
+      on_remote_checks_passed:
+        issue: "subtask"
+        to: "done"
+        only_from:
+          - "in_progress"
+          - "in_review"
+
+      on_pr_opened:
+        issue: "phase"
+        to: "in_review"
+        only_from:
+          - "todo"
+          - "in_progress"
+
+      on_pr_merged:
+        issue: "phase"
+        to: "done"
+        only_from:
+          - "in_review"
+
+    commits:
+      required_before_task_review: true
+      required_before_phase_review: true
+      stage_files_explicitly: true
+      conventional_commit: true
+      include_jira_key: true
+
+    local_gates:
+      # Commands are intentionally examples. Projects should override these with
+      # repo-specific targets such as `pnpm nx run app:test`.
+      required_before_subtask_done: true
+      required_before_phase_review: true
+      commands: []
+
+    pull_requests:
+      required_before_phase_review: true
+      draft_counts_as_review: false
+      required_before_phase_done: true
+      merge_required_for_phase_done: true
+
+    safety:
+      never_transition_done_backward: true
+      do_not_close_phase_with_uncommitted_changes: true
+      do_not_close_phase_without_validation: true
+      do_not_close_phase_without_pr_unless_configured: true
