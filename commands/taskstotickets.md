@@ -24,9 +24,20 @@ You **MUST** consider the user input before proceeding (if not empty).
 
 Recognized arguments:
 - **Parent ticket key** (e.g., `PROJ-123`) — nest all phase tickets under this parent
-- **`--dry-run`** or **`-n`** — preview without creating any Jira issues
+- **`--dry-run`** or **`-n`** — **plan** mode: update `jira-map.md` with `TBD` keys only; no Jira creates
+- **`--apply-plan`** — **apply** mode: create Jira issues only for `TBD` rows in the current map (no replan)
+- **`--fresh`** or **`--regenerate`** — skip “use existing map?” prompts; replan from `tasks.md`
 
 Arguments may be combined: `/speckit.jira.taskstotickets PROJ-100 --dry-run`
+
+**Plan vs apply** (Terraform analogy):
+
+| Mode | Flag | Writes | Jira creates |
+|------|------|--------|--------------|
+| Plan | `--dry-run` | Draft / pending `TBD` rows in `jira-map.md` | No |
+| Apply | (default live) or `--apply-plan` | Replaces `TBD` with real keys | Yes, additive only |
+
+Fine-tune the **Map** table (titles, grouping) in `jira-map.md` while keys are `TBD`, then apply.
 
 ---
 
@@ -65,7 +76,10 @@ Set `FORMAT` to `checklist` or `story-card`. All subsequent steps branch on `FOR
 
 ### Step 2 — Connect to Jira
 
-Call `getAccessibleAtlassianResources` to obtain the Jira Cloud ID.
+Call `getAccessibleAtlassianResources` to obtain the Jira Cloud ID and site URL.
+
+Store `JIRA_BROWSE_BASE` as `{site-url}/browse/` (trailing slash optional; use
+consistent URL form in the Links appendix).
 
 > [!CAUTION]
 > ONLY PROCEED IF A VALID JIRA CLOUD RESOURCE IS RETURNED.
@@ -80,15 +94,63 @@ Call `getAccessibleAtlassianResources` to obtain the Jira Cloud ID.
 
 ---
 
-### Step 4 — Validate Parent and Detect Stale Map
+### Step 4 — Load Map, Validate Parent, Plan Source
 
 If `PARENT_KEY` is set:
 - Call `getJiraIssue` to confirm the parent ticket exists. If not, **STOP** and report.
 
-If `FEATURE_DIR/jira-map.md` exists from a previous run:
-- Extract the first Phase Ticket key from the map table and call `getJiraIssue`.
-- **If it does NOT exist in Jira**: the map is stale — rename `jira-map.md` →
-  `jira-map.stale.md` with a warning and continue as if no prior mapping exists.
+If `FEATURE_DIR/jira-plan.md` exists (legacy), note it is deprecated — do not use it.
+
+**Load `FEATURE_DIR/jira-map.md` when present** and set `MAP_MODE`:
+
+| Condition | `MAP_MODE` |
+|-----------|------------|
+| No file | `none` |
+| `**Status**: draft` (or all phase keys are `TBD`) | `draft` |
+| `**Status**: created`, no `TBD` in **Map** | `created` |
+| `**Status**: created`, some `TBD` rows in **Map** | `created-pending` |
+
+Parse the **Map** table into `EXISTING_ROWS` (all rows) and index **mapped Task IDs**
+(checklist: `T001`, ranges `T003–T005`; story-card: use the Task ID column as stored).
+
+**Stale validation** (skip when `MAP_MODE` is `none` or `draft`):
+- Call `getJiraIssue` on the first real phase key in **Map**.
+- If missing in Jira: rename `jira-map.md` → `jira-map.stale.md` and set `MAP_MODE` to `none`.
+
+**Plan source** — unless `--fresh` / `--regenerate` is set:
+
+*Plan (`--dry-run`)*
+
+| `MAP_MODE` | Prompt |
+|------------|--------|
+| `none` | Generate a new plan (no prompt). |
+| `draft` | **Use existing draft**, **regenerate from tasks.md**, or **show existing only** (no write)? |
+| `created` | **Add new tasks only** (delta as `TBD` rows), **regenerate full map** (keep existing Task ID → key bindings), or **show map only**? |
+| `created-pending` | **Apply pending first** (run live apply), **replan delta**, or **show map only**? |
+
+*Apply (live, not `--dry-run`)*
+
+| `MAP_MODE` | Prompt (skip if `--apply-plan`) |
+|------------|--------------------------------|
+| `draft` | **Apply this draft**, **regenerate then apply**, or **abort**? |
+| `created` | **Sync new tasks only** (additive), **regenerate bindings**, or **abort**? |
+| `created-pending` | Default to **apply pending `TBD` rows only**; offer **abort**. |
+| `none` | Continue to preview gate (no prior map). |
+
+Set `PLAN_SOURCE`:
+
+- `use-existing` — use `jira-map.md` as-is (`TBD` rows still to be applied on live run).
+- `regenerate` — rebuild from `tasks.md` (see Step 7 delta rules).
+- `delta-only` — only unmapped Task IDs from `tasks.md` (incremental plan/apply).
+- `apply-pending` — live run: create Jira only for `TBD` rows (`--apply-plan` implies this).
+
+When `PLAN_SOURCE` is `use-existing` on a **plan** run: display the map and **STOP**
+(no file write unless the user asked to normalize Links/Preview).
+
+When `PLAN_SOURCE` is `regenerate` and `MAP_MODE` is `created`: **preserve** every
+**Map** row whose Task ID still exists in `tasks.md` (keep real keys). Recompute only
+missing work units / Task IDs. Do **not** remove Jira issues for tasks dropped from
+`tasks.md` — report them under **## Drift** in the written map (optional section).
 
 ---
 
@@ -128,7 +190,16 @@ Call `getJiraProjectIssueTypesMetadata` for the target project. Identify:
 
 ---
 
-### Step 7 — Parse Work Units
+### Step 7 — Parse Work Units (and Delta)
+
+**If `MAP_MODE` is `created` or `created-pending` and `PLAN_SOURCE` is `delta-only` or
+`regenerate`**: after parsing, **filter out** work units and task lines whose Task IDs
+are already in the mapped Task ID index. A phase with **some** mapped and **some** new
+Task IDs is kept; only the **new** lines become sub-tasks (reuse the existing phase key
+from **Map** when applying).
+
+**If `PLAN_SOURCE` is `apply-pending`**: skip parsing for planning; use **Map** rows
+where Phase Ticket or Sub-task starts with `TBD` as the create queue.
 
 **Checklist format** — group by `## Phase N: …` headers:
 - Each phase = one work unit.
@@ -221,38 +292,96 @@ Total: 2 tickets · 7 sub-tasks
 Story points: 3 will be set on PROJ-100
 ```
 
-**If `--dry-run` or `-n`**:
-- Save the preview as `FEATURE_DIR/jira-plan.md` (format below).
-- Report: `"Dry run complete. Plan saved to jira-plan.md. No Jira tickets were created."`
+**If `PLAN_SOURCE` is `use-existing`** (plan run): show the map and **STOP**.
+
+**If `--dry-run` or `-n`** (plan run, not `use-existing`):
+- Write or **merge** `FEATURE_DIR/jira-map.md`:
+  - First plan (`MAP_MODE` `none`): `**Status**: draft`, all keys `TBD`.
+  - Incremental (`MAP_MODE` `created`): keep existing **Map** rows; append new rows with
+    `TBD`; keep `**Status**: created` (pending apply).
+- Report counts: existing mapped tasks, new `TBD` rows, skipped duplicates.
 - **STOP** — do not proceed to the Write Phase.
 
-**Otherwise** ask: **"Create these tickets? (yes / no / save-plan-only)"**
-- `no` → abort; no Jira writes, no files written.
-- `save-plan-only` → save `jira-plan.md` and stop; no Jira writes.
-- `yes` → continue to the Write Phase.
+**Otherwise** (apply / live):
 
-#### jira-plan.md format
+If `--apply-plan` or `PLAN_SOURCE` is `apply-pending`: skip the yes/no replan prompt;
+continue to Write Phase for **`TBD` rows only**.
+
+Else ask: **"Apply plan? (yes / no / save-plan-only)"**
+- `no` → abort; no Jira writes.
+- `save-plan-only` → same write as plan (`--dry-run`) and stop.
+- `yes` → continue to Write Phase (additive rules below).
+
+#### jira-map.md format (draft and created)
+
+Dry-run and live-run use the **same file** (`jira-map.md`). Only `**Status**`, keys,
+and the Links appendix differ.
 
 > [!IMPORTANT]
-> `jira-plan.md` **never contains real Jira keys** — no tickets exist yet.
-> Do not use it as evidence that tickets have been created.
+> When `**Status**: draft`, phase and sub-task keys are `TBD` placeholders. Do not
+> treat the map as evidence that phase/sub-task tickets exist. `/speckit.jira.implement`
+> refuses draft maps.
+
+**Draft** (`--dry-run`, `save-plan-only`):
 
 ```markdown
-# Jira Ticket Plan  ⚠ DRAFT — no tickets have been created
+# Jira Task Map
 
-**Project**: PROJ | **Parent**: PROJ-100 (not yet linked) | **Generated**: YYYY-MM-DD
-**Status**: DRAFT — run `/speckit.jira.taskstotickets` without `--dry-run` to create tickets
+**Status**: draft
+**Project**: PROJ | **Parent**: PROJ-100 (or "None") | **Format**: checklist | **Generated**: YYYY-MM-DD
 
-| Level       | Title                                       | Jira Key      |
-|-------------|---------------------------------------------|---------------|
-| Task        | Bootstrap project and install dependencies  | (not created) |
-| Sub-task    |   ↳ Create project structure               | (not created) |
-| Sub-task    |   ↳ Install and configure dependencies     | (not created) |
-| Task (desc) | Polish and cross-cutting cleanup            | (not created) |
-...
+> **Draft** — Phase and sub-task keys are placeholders (`TBD`). No phase/sub-task Jira
+> issues exist yet. Run `/speckit.jira.taskstotickets` without `--dry-run` to create
+> tickets and set **Status** to `created`.
 
-_No Jira tickets were created. To create them, run without `--dry-run`._
+**Story points (planned)**: 5 — 3 phases · 17 tasks · 1 external integration
+
+## Preview
+
+Project: PROJ | Parent: PROJ-100 | Format: checklist
+────────────────────────────────────────────────────────────────────────────
+Bootstrap project and install dependencies   [Task]  2 sub-tasks
+  ├─ Create project structure                [Sub-task]
+  └─ Install and configure dependencies      [Sub-task]
+Total: 3 tickets · 5 sub-tasks
+
+## Map
+
+| Phase Ticket | Sub-task | Task ID | Description |
+|--------------|----------|---------|-------------|
+| TBD Bootstrap project and install dependencies | TBD | T001 | Create project structure |
+| TBD Bootstrap project and install dependencies | TBD | T002 | Install dependencies |
+| TBD Polish and cross-cutting cleanup | — | T003–T005 | (description-only) |
+
+## Links
+
+**Browse base**: `https://your-site.atlassian.net/browse/`
+
+| Key | Title | Link |
+|-----|-------|------|
+| PROJ-100 | Parent epic title | [PROJ-100](https://your-site.atlassian.net/browse/PROJ-100) |
+| TBD | Bootstrap project and install dependencies *(planned phase)* | — |
+| TBD | Create project structure *(planned sub-task)* | — |
 ```
+
+- Use `TBD` as the key token in **Map** columns; append the human title after `TBD`
+  and a space (same shape as live `KEY Title` rows).
+- **Preview** holds the Step 9 ASCII tree and totals.
+- **Links**: one row per distinct parent key (real URL when `PARENT_KEY` is set) plus
+  one row per planned phase/sub-task (`TBD` in Key column, `—` in Link until created).
+- Do **not** write `jira-plan.md`.
+
+**Created** (after successful Step 11 — see Step 12):
+- Set `**Status**: created` when no `TBD` rows remain in **Map**.
+- Replace each applied `TBD` with the real key returned from Jira (preserve title text).
+- Include `**Story points**`: N (applied to PARENT) when parent points were set.
+- **Links**: deduplicated rows for every real key in the map (parent, phases, sub-tasks).
+
+**Incremental / pending rows** (`MAP_MODE` was `created` or `created-pending`):
+- **Map** = prior rows with real keys **plus** new rows (never duplicate Task ID).
+- Only **new** `TBD` rows are written on plan; only those rows are created on apply.
+- Reuse an existing phase key when new Task IDs belong to a phase already in **Map**
+  (match by phase title text after the key).
 
 ---
 
@@ -267,11 +396,22 @@ If `PARENT_KEY` is set, apply `ESTIMATED_POINTS` to the parent:
 
 ---
 
-### Step 11 — Create Tickets
+### Step 11 — Create Tickets (additive)
 
-For each work unit in order:
+> [!CAUTION]
+> **Never create duplicate issues.** Before each create, confirm the Task ID is not
+> already present in **Map** with a real key (`[A-Z]+-\d+`). Skip creates for Task IDs
+> already mapped.
 
-1. **Create the work-unit ticket** (`createJiraIssue`):
+**Apply queue**: rows where Sub-task or Phase Ticket starts with `TBD`, or
+`PLAN_SOURCE` is `apply-pending`. When adding sub-tasks to an **existing phase**, use
+`createJiraIssue` with the **existing phase key** as parent — do not create a new
+phase ticket.
+
+For each work unit in order (only units with at least one unmapped Task ID):
+
+1. **Create the work-unit ticket** (`createJiraIssue`) **only when the phase has no
+   real key yet**:
    - **Summary**: title from Step 8
    - **Issue type**: Sub-task (if `PARENT_KEY` set) or Task
    - **Parent**: `PARENT_KEY` (if set)
@@ -304,26 +444,50 @@ Report progress after each ticket:
 ### Step 12 — Persist jira-map.md
 
 > [!CAUTION]
-> **Only write `jira-map.md` after ALL `createJiraIssue` calls in Step 11 succeed.**
+> **Only write `jira-map.md` after ALL `createJiraIssue` calls in the apply batch succeed.**
 > If any call fails, report the error and **STOP** — do not write a partial map.
-> Overwrite any existing `jira-map.md` in full; never append.
 
-Write `FEATURE_DIR/jira-map.md`:
+**Merge, do not blind overwrite:**
+- Keep all prior **Map** rows whose Task IDs were not in this apply batch.
+- Update rows that were applied: replace `TBD` with real keys in Phase Ticket / Sub-task.
+- Append brand-new rows from this run.
+- Rebuild **Links** from the merged **Map** (dedupe by key).
+- Set `**Status**: created` only when **Map** has zero `TBD` keys; otherwise
+  `**Status**: created` with pending `TBD` rows (implement blocks until apply completes).
+
+First-time apply from `draft`: after success, set `**Status**: created` and
+`**Created**` date (replace `**Generated**` if present).
 
 ```markdown
 # Jira Task Map
 
-**Project**: PROJ | **Parent**: PROJ-100 (or "None") | **Created**: YYYY-MM-DD
+**Status**: created
+**Project**: PROJ | **Parent**: PROJ-100 (or "None") | **Format**: checklist | **Created**: YYYY-MM-DD
+
+**Story points**: 5 (applied to PROJ-100)
+
+## Map
 
 | Phase Ticket | Sub-task | Task ID | Description |
 |--------------|----------|---------|-------------|
 | PROJ-456 Implement SMS delivery pipeline | PROJ-460 | T001 | Create adapter |
 | PROJ-456 Implement SMS delivery pipeline | PROJ-461 | T002 | Add retry logic |
 | PROJ-457 Bootstrap project dependencies | — | T003–T005 | (description-only) |
+
+## Links
+
+**Browse base**: `https://your-site.atlassian.net/browse/`
+
+| Key | Title | Link |
+|-----|-------|------|
+| PROJ-100 | Parent title | [PROJ-100](https://your-site.atlassian.net/browse/PROJ-100) |
+| PROJ-456 | Implement SMS delivery pipeline | [PROJ-456](https://your-site.atlassian.net/browse/PROJ-456) |
+| PROJ-460 | Create adapter | [PROJ-460](https://your-site.atlassian.net/browse/PROJ-460) |
 ```
 
-- One row per sub-task; description-only phases use `—` in the Sub-task column.
-- The Phase Ticket column repeats the key+title for each of its sub-tasks.
+- One row per sub-task in **Map**; description-only phases use `—` in the Sub-task column.
+- The Phase Ticket column repeats `KEY Title` for each of its sub-tasks.
+- **Links** is for navigation only; `/speckit.jira.implement` reads **Map**, not Links.
 - This file is consumed by `/speckit.jira.implement`.
 
 ---

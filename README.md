@@ -102,7 +102,7 @@ specify extension add --dev /path/to/spec-kit-jira
 
 ```bash
 specify extension list
-# ✓ Jira Integration (v1.4.0)
+# ✓ Jira Integration (v1.4.1)
 #     Three-tier Jira hierarchy (Epic → Story → Sub-task) with dry-run preview
 #     Commands: 2 | Hooks: 1 | Status: Enabled
 ```
@@ -159,15 +159,28 @@ Pass an Epic key to skip the prompt:
 /speckit.jira.taskstotickets ENG-100
 ```
 
-### 2. Dry run — preview without creating
+### 2. Plan and apply (Terraform-style)
+
+**Plan** — preview and tune before any Jira writes:
 
 ```
-/speckit.jira.taskstotickets --dry-run
 /speckit.jira.taskstotickets ENG-100 --dry-run
 ```
 
-Saves the preview as `jira-plan.md` in your feature directory. No Jira issues are
-created and no `jira-map.md` is written.
+Writes or updates `jira-map.md` with `TBD` keys. If a draft or map already exists,
+you are prompted to **use the existing file**, **regenerate from tasks.md**, or (when
+tickets already exist) **add new tasks only**. Edit titles and grouping in **Map**
+before apply.
+
+**Apply** — create Jira issues from the plan (additive; never duplicates Task IDs):
+
+```
+/speckit.jira.taskstotickets ENG-100              # apply (prompts if map exists)
+/speckit.jira.taskstotickets ENG-100 --apply-plan # apply TBD rows only, no replan
+```
+
+After amending `tasks.md`, run plan again to append new `TBD` rows, then apply.
+Use `--fresh` to skip “use existing?” prompts and regenerate from `tasks.md`.
 
 ### 3. Implement by ticket
 
@@ -246,29 +259,43 @@ hooks:
 
 ## Artifacts
 
-### `jira-plan.md`
-
-Written by `--dry-run` or the `save-plan-only` response. Human-readable preview of
-the planned ticket hierarchy — safe to share or commit for review before creating
-anything in Jira.
-
 ### `jira-map.md`
 
-Written after tickets are created. Maps phase ticket keys, sub-task keys, and task
-IDs; consumed by `/speckit.jira.implement` to scope implementation to individual
-tickets.
+Single artifact for dry-run and live-run. Consumed by `/speckit.jira.implement`.
+
+| `**Status**` | Meaning |
+|---------------|---------|
+| `draft` | Full preview — all keys `TBD`, nothing created yet |
+| `created` | At least one real key; may include pending `TBD` rows after a spec amend |
+| `created` (no `TBD`) | Fully applied — safe for `/speckit.jira.implement` |
+
+Sections:
+
+- **Preview** (draft) — ASCII tree from the preview gate; optional after create
+- **Map** — flat table of phase tickets, sub-tasks, and task IDs (implementation scope)
+- **Links** — clickable Jira URLs in an appendix (navigation only; not parsed by implement)
 
 ```markdown
 # Jira Task Map
 
-**Project**: ENG | **Parent**: ENG-100 | **Created**: 2026-05-26
+**Status**: created
+**Project**: ENG | **Parent**: ENG-100 | **Format**: checklist | **Created**: 2026-05-26
+
+## Map
 
 | Phase Ticket | Sub-task | Task ID | Description |
 |--------------|----------|---------|-------------|
 | ENG-456 Implement SMS delivery pipeline | ENG-460 | T006 | Create adapter |
-| ENG-456 Implement SMS delivery pipeline | ENG-461 | T007 | Add retry logic |
-| ENG-457 Bootstrap project dependencies | — | T001-T002 | (description-only) |
+
+## Links
+
+| Key | Title | Link |
+|-----|-------|------|
+| ENG-100 | Two-Way SMS | [ENG-100](https://your-site.atlassian.net/browse/ENG-100) |
+| ENG-456 | Implement SMS delivery pipeline | [ENG-456](https://your-site.atlassian.net/browse/ENG-456) |
 ```
+
+Legacy `jira-plan.md` from older extension versions is deprecated; use draft `jira-map.md` instead.
 
 ## Changelog
 

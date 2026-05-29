@@ -3,8 +3,8 @@ schema_version: "1.0"
 extension:
   id: "jira"
   name: "Jira Integration"
-  version: "1.4.0"
-  description: "Convert spec tasks into Jira tickets with dry-run preview and configurable progress recording"
+  version: "1.4.1"
+  description: "Convert spec tasks into Jira tickets with plan/apply jira-map.md, incremental sync, and configurable progress recording"
   author: "Patrick Fowler"
   repository: "https://github.com/pdfowler/spec-kit-jira"
   homepage: "https://github.com/pdfowler/spec-kit-jira"
@@ -21,7 +21,7 @@ provides:
   commands:
     - name: "speckit.jira.taskstotickets"
       file: "commands/taskstotickets.md"
-      description: "Convert tasks.md phases into Jira tickets (Epic → Story → Sub-task) with mandatory preview before any writes; supports --dry-run"
+      description: "Convert tasks.md phases into Jira tickets with mandatory preview; dry-run writes draft jira-map.md (TBD keys)"
 
     - name: "speckit.jira.implement"
       file: "commands/implement.md"

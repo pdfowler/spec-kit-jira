@@ -1,5 +1,42 @@
 # Changelog
 
+## [1.4.1] - 2026-05-29
+
+### Added
+
+- **Plan / apply workflow** — `--dry-run` plans into `jira-map.md`; live run or
+  `--apply-plan` creates Jira issues from `TBD` rows only (Terraform-style). Prompts
+  to **use existing map**, **regenerate**, or **add new tasks only** when a map exists.
+
+- **Incremental sync** — after tickets exist, new `tasks.md` Task IDs are planned as
+  additional `TBD` rows and created on apply without duplicating mapped Task IDs.
+  New sub-tasks reuse an existing phase key when the phase is already in **Map**.
+
+- **`--fresh` / `--regenerate`** — skip reuse prompts and replan from `tasks.md`
+  (regenerate on `created` maps preserves existing Task ID → key bindings).
+
+### Changed
+
+- **Unified `jira-map.md` for dry-run and live-run** — `--dry-run` and `save-plan-only`
+  write draft or pending rows in `jira-map.md` (`TBD` keys) instead of a separate
+  `jira-plan.md`. Live runs set `**Status**: created` with real keys when fully applied.
+
+- **Preview and Links sections** — draft maps include the Step 9 preview tree under
+  `## Preview` and clickable Jira URLs under `## Links` (appendix; not parsed by
+  `implement`). Created maps keep **Map** + deduplicated **Links**.
+
+- **`jira-map.md` writes merge** — apply updates and appends rows instead of
+  overwriting the full file. `**Status**: created` may include pending `TBD` rows
+  until incremental apply completes.
+
+- **`implement` rejects pending plans** — stops when `**Status**: draft` or any `TBD`
+  key appears in the **Map** table; parses **Map** only (ignores Preview/Links).
+
+### Removed
+
+- **`jira-plan.md`** — no longer written. Legacy files may remain in feature dirs but
+  are ignored by commands.
+
 ## [1.4.0] - 2026-05-27
 
 ### Added

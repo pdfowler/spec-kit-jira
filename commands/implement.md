@@ -79,14 +79,27 @@ If the file does not exist, **STOP**:
 > "No Jira mapping found. Run `/speckit.jira.taskstotickets` first to create tickets
 > and generate the mapping."
 
-Parse the flat table:
+Extract `**Status**` from the header (`draft` or `created`). If missing, infer:
+- `draft` when any key in the **Map** table is `TBD`
+- `created` otherwise
+
+**If `Status` is `draft`**, or any Phase Ticket / Sub-task cell starts with `TBD`, **STOP**:
+> "jira-map.md has pending plan rows (`TBD` keys). Apply them first:
+> `/speckit.jira.taskstotickets --apply-plan` (or live apply without `--dry-run`),
+> then retry implement."
+
+If `FEATURE_DIR/jira-plan.md` exists (legacy), ignore it; only `jira-map.md` is authoritative.
+
+Parse the **Map** section table only (ignore **Preview** and **Links**):
 - **Phase tickets**: unique Phase Ticket column values (first space-delimited token
-  is the key; the rest is the title)
-- **Sub-task index**: Sub-task key keyed by Task ID (skip rows where Sub-task is `—`)
+  is the key; the rest is the title). Keys must match `[A-Z]+-\d+`.
+- **Sub-task index**: Sub-task key keyed by Task ID (skip rows where Sub-task is `—`).
+  Sub-task keys must match `[A-Z]+-\d+`.
 
 Extract `**Parent**: PROJ-NNN` from the header for reference.
 
-**Validate the map is not stale**: call `getJiraIssue` on the first Phase Ticket key.
+**Validate the map is not stale**: call `getJiraIssue` on the first real phase key
+from the **Map** table.
 - If it exists: proceed.
 - If it does NOT exist: **STOP**:
   > "⚠ jira-map.md references {KEY} but that issue was not found in Jira. The map
