@@ -1,5 +1,5 @@
 ---
-description: Convert tasks.md into Jira tickets (parent ticket → phase tickets → sub-tasks) with a mandatory preview gate. Supports both checklist and story-card task formats. Supports --dry-run.
+description: Plan or apply Jira tickets from tasks.md (plan/apply subcommands; flat jira-map.md). Checklist and story-card formats supported.
 tools:
   - 'Atlassian/getAccessibleAtlassianResources'
   - 'Atlassian/getVisibleJiraProjects'
@@ -22,22 +22,59 @@ $ARGUMENTS
 
 You **MUST** consider the user input before proceeding (if not empty).
 
-Recognized arguments:
-- **Parent ticket key** (e.g., `PROJ-123`) — nest all phase tickets under this parent
-- **`--dry-run`** or **`-n`** — **plan** mode: update `jira-map.md` with `TBD` keys only; no Jira creates
-- **`--apply-plan`** — **apply** mode: create Jira issues only for `TBD` rows in the current map (no replan)
-- **`--fresh`** or **`--regenerate`** — skip “use existing map?” prompts; replan from `tasks.md`
+### Parse mode and parent key
 
-Arguments may be combined: `/speckit.jira.taskstotickets PROJ-100 --dry-run`
+Tokenize `$ARGUMENTS` (space-separated). Set defaults: `MODE` = `plan`, `PARENT_KEY` = unset.
 
-**Plan vs apply** (Terraform analogy):
+| Token | Action |
+|-------|--------|
+| `plan` | `MODE` = `plan` (explicit) |
+| `apply` | `MODE` = `apply` |
+| `[A-Z]+-\d+` | `PARENT_KEY` = token |
+| `--fresh` or `--regenerate` | skip “use existing map?” prompts; replan from `tasks.md` |
+| `none` | `PARENT_KEY` = null (only when prompting; not combined with a Jira key) |
 
-| Mode | Flag | Writes | Jira creates |
-|------|------|--------|--------------|
-| Plan | `--dry-run` | Draft / pending `TBD` rows in `jira-map.md` | No |
-| Apply | (default live) or `--apply-plan` | Replaces `TBD` with real keys | Yes, additive only |
+**Examples** (all valid):
 
-Fine-tune the **Map** table (titles, grouping) in `jira-map.md` while keys are `TBD`, then apply.
+```text
+/speckit.jira.taskstotickets plan ENG-6867
+/speckit.jira.taskstotickets apply ENG-6867
+/speckit.jira.taskstotickets ENG-6867          # plan (default)
+/speckit.jira.taskstotickets plan ENG-6867 --regenerate
+```
+
+> [!IMPORTANT]
+> Removed in v1.4.2: `--dry-run`, `-n`, `--apply-plan`. Use `plan` and `apply` instead.
+
+| Mode | Invocation | Writes `jira-map.md` | Jira creates |
+|------|------------|----------------------|--------------|
+| **plan** | `plan KEY` or `KEY` alone | Yes (`TBD` / pending rows) | No |
+| **apply** | `apply KEY` | Merges real keys | Yes (`TBD` rows only) |
+
+Fine-tune the **Map** table while keys are `TBD`, then run **apply**.
+
+When invoked from the `after_tasks` hook with no subcommand, treat as **`plan`**.
+
+### Apply prerequisites (enforce before any Jira writes)
+
+When `MODE` is `apply`, validate immediately after loading paths (before planning logic):
+
+1. **`FEATURE_DIR/jira-map.md` must exist** — else **STOP**:
+   > "No plan found. Run `/speckit.jira.taskstotickets plan {PARENT_KEY}` first."
+
+2. **Flat map required** — if the file has `## Story Map` or `## Sub-task Map` but no `## Map`
+   table, **STOP** and either:
+   - Convert legacy → flat **Map** (preserve all existing Jira keys; one row per sub-task), then continue, **or**
+   - **STOP** with instructions to run `plan` after manual migration.
+
+3. **Plan must be applicable** — the **Map** table must contain at least one row where
+   Phase Ticket or Sub-task starts with `TBD`. If `**Status**: created` and there are no
+   `TBD` rows, **STOP**:
+   > "Nothing to apply. Run `plan` to add new tasks from tasks.md (delta), or confirm the map is complete."
+
+4. Set `PLAN_SOURCE` = `apply-pending` for apply runs (no replan unless `--regenerate`).
+
+Apply **never** runs a full naive ticket generation from `tasks.md` alone.
 
 ---
 
@@ -47,9 +84,8 @@ Fine-tune the **Map** table (titles, grouping) in `jira-map.md` while keys are `
 
 ### Step 0 — Identify Parent Ticket
 
-If `$ARGUMENTS` contains a key matching `[A-Z]+-\d+`, extract it as `PARENT_KEY`.
-
-Otherwise ask the user:
+If `PARENT_KEY` is still unset after parsing, scan remaining tokens for `[A-Z]+-\d+`.
+If none, ask the user:
 
 > Do you have an existing Epic or Story to group these tickets under?
 > - Provide the Jira key (e.g. `PROJ-123`) to nest phase tickets under it, **or**
@@ -117,32 +153,23 @@ Parse the **Map** table into `EXISTING_ROWS` (all rows) and index **mapped Task 
 - Call `getJiraIssue` on the first real phase key in **Map**.
 - If missing in Jira: rename `jira-map.md` → `jira-map.stale.md` and set `MAP_MODE` to `none`.
 
-**Plan source** — unless `--fresh` / `--regenerate` is set:
-
-*Plan (`--dry-run`)*
+**Plan source** — only when `MODE` is `plan`, unless `--fresh` / `--regenerate` is set:
 
 | `MAP_MODE` | Prompt |
 |------------|--------|
 | `none` | Generate a new plan (no prompt). |
 | `draft` | **Use existing draft**, **regenerate from tasks.md**, or **show existing only** (no write)? |
-| `created` | **Add new tasks only** (delta as `TBD` rows), **regenerate full map** (keep existing Task ID → key bindings), or **show map only**? |
-| `created-pending` | **Apply pending first** (run live apply), **replan delta**, or **show map only**? |
+| `created` | **Add new tasks only** (delta as `TBD` rows), **regenerate full map** (keep bindings), or **show map only**? |
+| `created-pending` | **Replan delta**, **show map only**, or remind: run **`apply`** for pending `TBD` rows? |
 
-*Apply (live, not `--dry-run`)*
-
-| `MAP_MODE` | Prompt (skip if `--apply-plan`) |
-|------------|--------------------------------|
-| `draft` | **Apply this draft**, **regenerate then apply**, or **abort**? |
-| `created` | **Sync new tasks only** (additive), **regenerate bindings**, or **abort**? |
-| `created-pending` | Default to **apply pending `TBD` rows only**; offer **abort**. |
-| `none` | Continue to preview gate (no prior map). |
+When `MODE` is `apply`, skip plan-source prompts (apply prerequisites already enforced).
 
 Set `PLAN_SOURCE`:
 
-- `use-existing` — use `jira-map.md` as-is (`TBD` rows still to be applied on live run).
+- `use-existing` — use `jira-map.md` as-is (plan show-only).
 - `regenerate` — rebuild from `tasks.md` (see Step 7 delta rules).
-- `delta-only` — only unmapped Task IDs from `tasks.md` (incremental plan/apply).
-- `apply-pending` — live run: create Jira only for `TBD` rows (`--apply-plan` implies this).
+- `delta-only` — only unmapped Task IDs from `tasks.md`.
+- `apply-pending` — **apply mode only**: create Jira for `TBD` rows (no replan).
 
 When `PLAN_SOURCE` is `use-existing` on a **plan** run: display the map and **STOP**
 (no file write unless the user asked to normalize Links/Preview).
@@ -262,7 +289,8 @@ where Phase Ticket or Sub-task starts with `TBD` as the create queue.
 ### Step 9 — Show Preview and Confirm
 
 > [!IMPORTANT]
-> No Jira write API calls may occur before the user confirms in this step.
+> **Plan** (`MODE` = `plan`): no Jira writes in this step; write `jira-map.md` at the end.
+> **Apply** (`MODE` = `apply`): confirm once, then proceed to Write Phase for `TBD` rows only.
 
 Build and display a preview tree:
 
@@ -292,24 +320,21 @@ Total: 2 tickets · 7 sub-tasks
 Story points: 3 will be set on PROJ-100
 ```
 
-**If `PLAN_SOURCE` is `use-existing`** (plan run): show the map and **STOP**.
+**If `PLAN_SOURCE` is `use-existing`** (`MODE` = `plan`): show the map and **STOP**.
 
-**If `--dry-run` or `-n`** (plan run, not `use-existing`):
+**If `MODE` is `plan`** (and not `use-existing`):
 - Write or **merge** `FEATURE_DIR/jira-map.md`:
   - First plan (`MAP_MODE` `none`): `**Status**: draft`, all keys `TBD`.
   - Incremental (`MAP_MODE` `created`): keep existing **Map** rows; append new rows with
     `TBD`; keep `**Status**: created` (pending apply).
 - Report counts: existing mapped tasks, new `TBD` rows, skipped duplicates.
+- Remind: edit **Map**, then run `apply {PARENT_KEY}`.
 - **STOP** — do not proceed to the Write Phase.
 
-**Otherwise** (apply / live):
-
-If `--apply-plan` or `PLAN_SOURCE` is `apply-pending`: skip the yes/no replan prompt;
-continue to Write Phase for **`TBD` rows only**.
-
-Else ask: **"Apply plan? (yes / no / save-plan-only)"**
+**If `MODE` is `apply`**:
+- Show count of `TBD` rows to be created.
+- Ask once: **"Apply {N} planned tickets to Jira? (yes / no)"**
 - `no` → abort; no Jira writes.
-- `save-plan-only` → same write as plan (`--dry-run`) and stop.
 - `yes` → continue to Write Phase (additive rules below).
 
 #### jira-map.md format (draft and created)
@@ -322,7 +347,7 @@ and the Links appendix differ.
 > treat the map as evidence that phase/sub-task tickets exist. `/speckit.jira.implement`
 > refuses draft maps.
 
-**Draft** (`--dry-run`, `save-plan-only`):
+**Draft** (`MODE` = `plan`):
 
 ```markdown
 # Jira Task Map
@@ -331,7 +356,7 @@ and the Links appendix differ.
 **Project**: PROJ | **Parent**: PROJ-100 (or "None") | **Format**: checklist | **Generated**: YYYY-MM-DD
 
 > **Draft** — Phase and sub-task keys are placeholders (`TBD`). No phase/sub-task Jira
-> issues exist yet. Run `/speckit.jira.taskstotickets` without `--dry-run` to create
+> issues exist yet. Run `/speckit.jira.taskstotickets apply {PARENT_KEY}` to create
 > tickets and set **Status** to `created`.
 
 **Story points (planned)**: 5 — 3 phases · 17 tasks · 1 external integration
@@ -385,7 +410,7 @@ Total: 3 tickets · 5 sub-tasks
 
 ---
 
-### ── WRITE PHASE (only reached after "yes") ──────────────────────────────────
+### ── WRITE PHASE (`MODE` = `apply` only, after "yes") ───────────────────────
 
 ### Step 10 — Set Story Points
 

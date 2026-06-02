@@ -1,5 +1,25 @@
 # Changelog
 
+## [1.4.2] - 2026-05-29
+
+### Added
+
+- **`plan` / `apply` subcommands** — `taskstotickets plan ENG-6867` and
+  `taskstotickets apply ENG-6867`. Parent key only (`ENG-6867`) defaults to **plan**.
+- **Apply guards** — apply stops when no `jira-map.md`, legacy map format, or no `TBD`
+  rows to create.
+- **Legacy map migration** — plan step converts Story Map / Sub-task Map to flat
+  **Map** while preserving keys (or stops with instructions).
+
+### Changed
+
+- **`after_tasks` hook** — prompts for **plan** only; apply is always separate.
+- **Write phase** — runs only on **apply** (plan never creates Jira issues).
+
+### Removed
+
+- **`--dry-run`**, **`-n`**, **`--apply-plan`** — use `plan` / `apply` instead.
+
 ## [1.4.1] - 2026-05-29
 
 ### Added

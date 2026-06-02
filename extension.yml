@@ -3,7 +3,7 @@ schema_version: "1.0"
 extension:
   id: "jira"
   name: "Jira Integration"
-  version: "1.4.1"
+  version: "1.4.2"
   description: "Convert spec tasks into Jira tickets with plan/apply jira-map.md, incremental sync, and configurable progress recording"
   author: "Patrick Fowler"
   repository: "https://github.com/pdfowler/spec-kit-jira"
@@ -21,7 +21,7 @@ provides:
   commands:
     - name: "speckit.jira.taskstotickets"
       file: "commands/taskstotickets.md"
-      description: "Convert tasks.md phases into Jira tickets with mandatory preview; dry-run writes draft jira-map.md (TBD keys)"
+      description: "Plan or apply Jira tickets from tasks.md via plan/apply subcommands and flat jira-map.md"
 
     - name: "speckit.jira.implement"
       file: "commands/implement.md"
@@ -31,7 +31,7 @@ hooks:
   after_tasks:
     command: "speckit.jira.taskstotickets"
     optional: true
-    prompt: "Create Jira tickets for the generated tasks?"
+    prompt: "Plan Jira tickets from tasks? (runs taskstotickets plan — apply separately after reviewing jira-map.md)"
 
 tags:
   - "jira"

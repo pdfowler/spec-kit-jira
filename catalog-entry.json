@@ -3,7 +3,7 @@
   "id": "jira",
   "description": "Convert spec tasks into Jira tickets with plan/apply jira-map.md, incremental sync, and configurable progress recording",
   "author": "Patrick Fowler",
-  "version": "1.4.1",
+  "version": "1.4.2",
   "download_url": "https://github.com/pdfowler/spec-kit-jira/archive/refs/heads/main.zip",
   "repository": "https://github.com/pdfowler/spec-kit-jira",
   "homepage": "https://github.com/pdfowler/spec-kit-jira",

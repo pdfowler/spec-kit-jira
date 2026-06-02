@@ -102,7 +102,7 @@ specify extension add --dev /path/to/spec-kit-jira
 
 ```bash
 specify extension list
-# ✓ Jira Integration (v1.4.1)
+# ✓ Jira Integration (v1.4.2)
 #     Three-tier Jira hierarchy (Epic → Story → Sub-task) with dry-run preview
 #     Commands: 2 | Hooks: 1 | Status: Enabled
 ```
@@ -121,66 +121,30 @@ Then re-run your init script (or `specify integration install`) to apply the ren
 
 ## Usage
 
-### 1. Create tickets from tasks
+### 1. Plan and apply (Terraform-style)
+
+**Plan** — write or update `jira-map.md` with `TBD` keys (no Jira creates):
 
 ```
-/speckit.jira.taskstotickets
+/speckit.jira.taskstotickets plan ENG-6867
+/speckit.jira.taskstotickets ENG-6867              # plan is the default
 ```
 
-The command walks you through:
+Review and edit the flat **Map** table (and **Preview** / **Links** sections), then apply.
 
-1. **Parent ticket** — provide an Epic/Story key to nest tickets under it, or `none`
-   for standalone tickets (can also be passed as a direct argument)
-2. **Plan** — detects format (checklist or story-card), builds the full ticket hierarchy,
-   estimates story points
-3. **Preview** — shows everything that will be created before any Jira writes
-
-   ```
-   Epic: ENG-100 "Two-Way SMS v1" (existing)
-   Estimated story points: 5  (3 phases, 17 tasks, 1 external integration)
-
-   | Level       | Title                               | Phase   | Task IDs  |
-   |-------------|-------------------------------------|---------|-----------|
-   | Story       | Bootstrap project dependencies      | Phase 1 | T001–T002 |
-   | (desc-only) | ← ≤3 tasks, tasks in description    | Phase 2 | T003–T005 |
-   | Story       | Implement SMS delivery pipeline     | Phase 3 | T006–T014 |
-   | Sub-task    |   ↳ Implement adapter send method   | Phase 3 | T006      |
-   | Sub-task    |   ↳ Add retry with backoff          | Phase 3 | T007      |
-   | Story       | Add delivery audit trail            | Phase 4 | T015–T019 |
-
-   → Proceed? (yes / no / save-plan-only)
-   ```
-
-4. **Create** — on `yes`, creates Epic (if new), Stories, and Sub-tasks; writes `jira-map.md`
-
-Pass an Epic key to skip the prompt:
+**Apply** — create Jira issues for `TBD` rows only (requires an existing plan):
 
 ```
-/speckit.jira.taskstotickets ENG-100
+/speckit.jira.taskstotickets apply ENG-6867
 ```
 
-### 2. Plan and apply (Terraform-style)
+Apply **fails** if `jira-map.md` is missing, uses the legacy Story/Sub-task map format,
+or has no `TBD` rows. After amending `tasks.md`, run **plan** again (delta), then **apply**.
 
-**Plan** — preview and tune before any Jira writes:
+Optional: `--regenerate` or `--fresh` on **plan** to skip “use existing map?” prompts.
 
-```
-/speckit.jira.taskstotickets ENG-100 --dry-run
-```
-
-Writes or updates `jira-map.md` with `TBD` keys. If a draft or map already exists,
-you are prompted to **use the existing file**, **regenerate from tasks.md**, or (when
-tickets already exist) **add new tasks only**. Edit titles and grouping in **Map**
-before apply.
-
-**Apply** — create Jira issues from the plan (additive; never duplicates Task IDs):
-
-```
-/speckit.jira.taskstotickets ENG-100              # apply (prompts if map exists)
-/speckit.jira.taskstotickets ENG-100 --apply-plan # apply TBD rows only, no replan
-```
-
-After amending `tasks.md`, run plan again to append new `TBD` rows, then apply.
-Use `--fresh` to skip “use existing?” prompts and regenerate from `tasks.md`.
+> **Breaking change (v1.4.2):** `--dry-run`, `-n`, and `--apply-plan` are removed. Use
+> `plan` and `apply` subcommands instead.
 
 ### 3. Implement by ticket
 

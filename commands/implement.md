@@ -85,10 +85,13 @@ Extract `**Status**` from the header (`draft` or `created`). If missing, infer:
 
 **If `Status` is `draft`**, or any Phase Ticket / Sub-task cell starts with `TBD`, **STOP**:
 > "jira-map.md has pending plan rows (`TBD` keys). Apply them first:
-> `/speckit.jira.taskstotickets --apply-plan` (or live apply without `--dry-run`),
-> then retry implement."
+> `/speckit.jira.taskstotickets apply {PARENT_KEY}`, then retry implement."
 
 If `FEATURE_DIR/jira-plan.md` exists (legacy), ignore it; only `jira-map.md` is authoritative.
+
+If the file has `## Story Map` / `## Sub-task Map` but no `## Map` table, **STOP**:
+> "jira-map.md uses the legacy format. Run `taskstotickets plan` to migrate to the flat
+> **Map** table (preserve existing keys), then apply before implementing."
 
 Parse the **Map** section table only (ignore **Preview** and **Links**):
 - **Phase tickets**: unique Phase Ticket column values (first space-delimited token
