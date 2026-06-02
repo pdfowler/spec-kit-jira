@@ -267,12 +267,17 @@ where Phase Ticket or Sub-task starts with `TBD` as the create queue.
   are `- [x]`.
 - A phase with mixed complete/incomplete tasks is included; note already-done tasks
   in the ticket description.
-- **Mark as description-only** (no sub-tasks) any phase whose heading contains any
-  of these signals (case-insensitive):
-  `setup`, `foundation`, `foundational`, `prereq`, `prerequisite`,
-  `infrastructure`, `infra`, `polish`, `cross-cutting`, `cleanup`,
-  `qa`, `validation`, `hardening`, `final`
-  — or any phase with ≤ 3 incomplete tasks.
+- **Mark as description-only** (no sub-tasks) only when **both** apply:
+  1. The phase has **≤ 3** incomplete task lines, **or** the phase label (text after
+     `## Phase …:` before an optional ` - ` suffix) is **exactly** one of the
+     bootstrap/polish types below (whole-phrase match, not substring).
+  2. Bootstrap/polish phase labels (case-insensitive, exact match on label only):
+     `setup`, `foundation`, `foundational`, `prerequisites`, `prerequisite`,
+     `infrastructure`, `infra`, `polish`, `cross-cutting`, `cleanup`, `qa`, `final`.
+  - **Never** description-only when the phase has **≥ 4** incomplete tasks — even if
+    the heading mentions "hardening", "validation", or "teardown".
+  - **Do not** substring-match keywords inside deliverable titles (e.g. "Contract
+    **Hardening**" or "Cross-Cutting **Validation**" are normal phases with sub-tasks).
   Tasks for description-only phases are embedded in the ticket description.
 
 **Story-card format** — group by `### PREFIX-NNN: Title` blocks:
@@ -336,7 +341,7 @@ Bootstrap project and install dependencies   [Task]  2 sub-tasks
   └─ Install and configure dependencies      [Sub-task]
 Implement core data model                    [Task]  3 sub-tasks
   ├─ …
-Polish and cross-cutting cleanup             [Task]  description-only (5 tasks in description)
+Polish and cross-cutting cleanup             [Task]  description-only (≤3 tasks or exact label match)
 Total: 3 tickets · 5 sub-tasks  (1 description-only ticket)
 Story points: 5 will be set on PROJ-100
 ```

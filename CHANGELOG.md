@@ -1,5 +1,14 @@
 # Changelog
 
+## [1.4.3] - 2026-05-29
+
+### Fixed
+
+- **False-positive description-only phases** — phases with ≥ 4 tasks always get
+  sub-tasks. Bootstrap/polish detection uses exact phase-label match (e.g. `Setup`),
+  not substring match on words like `hardening` or `validation` in deliverable titles
+  (fixes stories such as "Contract Hardening" embedding tasks in the description).
+
 ## [1.4.2] - 2026-05-29
 
 ### Added

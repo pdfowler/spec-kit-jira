@@ -3,7 +3,7 @@ schema_version: "1.0"
 extension:
   id: "jira"
   name: "Jira Integration"
-  version: "1.4.2"
+  version: "1.4.3"
   description: "Convert spec tasks into Jira tickets with plan/apply jira-map.md, incremental sync, and configurable progress recording"
   author: "Patrick Fowler"
   repository: "https://github.com/pdfowler/spec-kit-jira"

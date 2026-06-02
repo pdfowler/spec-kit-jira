@@ -104,7 +104,7 @@ specify extension add --dev /path/to/spec-kit-jira
 
 ```bash
 specify extension list
-# ✓ Jira Integration (v1.4.2)
+# ✓ Jira Integration (v1.4.3)
 #     Three-tier Jira hierarchy (Epic → Story → Sub-task) with dry-run preview
 #     Commands: 4 | Hooks: 1 | Status: Enabled
 ```
