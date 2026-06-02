@@ -146,7 +146,7 @@ Optional: `--regenerate` or `--fresh` on **plan** to skip â€œuse existing map?â€
 > **Breaking change (v1.4.2):** `--dry-run`, `-n`, and `--apply-plan` are removed. Use
 > `plan` and `apply` subcommands instead.
 
-### 3. Implement by ticket
+### 2. Implement by ticket
 
 ```
 /speckit.jira.implement
