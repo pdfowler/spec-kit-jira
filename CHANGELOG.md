@@ -6,19 +6,20 @@
 
 - **`plan` / `apply` subcommands** — `taskstotickets plan ENG-6867` and
   `taskstotickets apply ENG-6867`. Parent key only (`ENG-6867`) defaults to **plan**.
+- **Shorthand commands** — `speckit.jira.plan-tickets` and `speckit.jira.apply-tickets`
+  (same behavior as `taskstotickets plan` / `apply`).
 - **Apply guards** — apply stops when no `jira-map.md`, legacy map format, or no `TBD`
   rows to create.
-- **Legacy map migration** — plan step converts Story Map / Sub-task Map to flat
-  **Map** while preserving keys (or stops with instructions).
+- **Step 4a legacy map migration** — on **plan**, auto-converts `## Story Map` /
+  `## Sub-task Map` to flat `## Map` (preserves keys; backs up `jira-map.legacy.md`).
+  Apply on legacy format directs you to run **plan** first.
 
 ### Changed
 
-- **`after_tasks` hook** — prompts for **plan** only; apply is always separate.
+- **Deprecated flag aliases** — `--dry-run` / `-n` → `plan`; `--apply-plan` → `apply`
+  (one-line deprecation warning; prefer subcommands).
+- **`after_tasks` hook** — runs `plan-tickets` only; apply is always separate.
 - **Write phase** — runs only on **apply** (plan never creates Jira issues).
-
-### Removed
-
-- **`--dry-run`**, **`-n`**, **`--apply-plan`** — use `plan` / `apply` instead.
 
 ## [1.4.1] - 2026-05-29
 

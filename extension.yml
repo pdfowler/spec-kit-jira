@@ -23,15 +23,23 @@ provides:
       file: "commands/taskstotickets.md"
       description: "Plan or apply Jira tickets from tasks.md via plan/apply subcommands and flat jira-map.md"
 
+    - name: "speckit.jira.plan-tickets"
+      file: "commands/plan-tickets.md"
+      description: "Plan Jira tickets (writes jira-map.md with TBD keys; no Jira creates)"
+
+    - name: "speckit.jira.apply-tickets"
+      file: "commands/apply-tickets.md"
+      description: "Apply Jira plan (creates issues for TBD rows in jira-map.md only)"
+
     - name: "speckit.jira.implement"
       file: "commands/implement.md"
       description: "Run implementation scoped to a phase ticket; records Jira progress using configurable gates"
 
 hooks:
   after_tasks:
-    command: "speckit.jira.taskstotickets"
+    command: "speckit.jira.plan-tickets"
     optional: true
-    prompt: "Plan Jira tickets from tasks? (runs taskstotickets plan — apply separately after reviewing jira-map.md)"
+    prompt: "Plan Jira tickets from tasks? (apply separately with taskstotickets apply after reviewing jira-map.md)"
 
 tags:
   - "jira"

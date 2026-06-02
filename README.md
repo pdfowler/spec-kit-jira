@@ -6,8 +6,10 @@ A [Spec Kit](https://github.com/github/spec-kit) extension that bridges your spe
 
 | Command | Description |
 |---------|-------------|
-| `/speckit.jira.taskstotickets` | Converts `tasks.md` phases into Jira tickets (Epic → Story → Sub-task) with a dry-run preview gate |
-| `/speckit.jira.implement` | Runs implementation scoped to a single Jira phase ticket; records sub-task and phase progress using policy-driven gates |
+| `/speckit.jira.taskstotickets` | `plan` or `apply` subcommands; flat `jira-map.md` |
+| `/speckit.jira.plan-tickets` | Shorthand for `taskstotickets plan` |
+| `/speckit.jira.apply-tickets` | Shorthand for `taskstotickets apply` |
+| `/speckit.jira.implement` | Runs implementation scoped to a phase ticket; policy-driven Jira progress |
 
 ## How it works
 
@@ -104,7 +106,7 @@ specify extension add --dev /path/to/spec-kit-jira
 specify extension list
 # ✓ Jira Integration (v1.4.2)
 #     Three-tier Jira hierarchy (Epic → Story → Sub-task) with dry-run preview
-#     Commands: 2 | Hooks: 1 | Status: Enabled
+#     Commands: 4 | Hooks: 1 | Status: Enabled
 ```
 
 ### Namespace customization
@@ -143,8 +145,11 @@ or has no `TBD` rows. After amending `tasks.md`, run **plan** again (delta), the
 
 Optional: `--regenerate` or `--fresh` on **plan** to skip “use existing map?” prompts.
 
-> **Breaking change (v1.4.2):** `--dry-run`, `-n`, and `--apply-plan` are removed. Use
-> `plan` and `apply` subcommands instead.
+**Legacy map** (Story Map / Sub-task Map): run **plan** once — migrates to flat **Map**
+(backup at `jira-map.legacy.md`), then **apply**.
+
+> **v1.4.2:** Prefer `plan` / `apply`. Deprecated flags `--dry-run`, `-n`, `--apply-plan`
+> still work with a warning.
 
 ### 2. Implement by ticket
 

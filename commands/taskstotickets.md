@@ -33,6 +33,8 @@ Tokenize `$ARGUMENTS` (space-separated). Set defaults: `MODE` = `plan`, `PARENT_
 | `[A-Z]+-\d+` | `PARENT_KEY` = token |
 | `--fresh` or `--regenerate` | skip “use existing map?” prompts; replan from `tasks.md` |
 | `none` | `PARENT_KEY` = null (only when prompting; not combined with a Jira key) |
+| `--dry-run` or `-n` | **Deprecated** — treat as `plan`; print one-line warning to use `plan` |
+| `--apply-plan` | **Deprecated** — treat as `apply`; print one-line warning to use `apply` |
 
 **Examples** (all valid):
 
@@ -43,8 +45,9 @@ Tokenize `$ARGUMENTS` (space-separated). Set defaults: `MODE` = `plan`, `PARENT_
 /speckit.jira.taskstotickets plan ENG-6867 --regenerate
 ```
 
-> [!IMPORTANT]
-> Removed in v1.4.2: `--dry-run`, `-n`, `--apply-plan`. Use `plan` and `apply` instead.
+> [!NOTE]
+> **Deprecated flags (v1.4.2):** `--dry-run`, `-n` → `plan`; `--apply-plan` → `apply` (warning only).
+> Prefer `plan` / `apply` subcommands or `/speckit.jira.plan-tickets` / `apply-tickets`.
 
 | Mode | Invocation | Writes `jira-map.md` | Jira creates |
 |------|------------|----------------------|--------------|
@@ -63,9 +66,10 @@ When `MODE` is `apply`, validate immediately after loading paths (before plannin
    > "No plan found. Run `/speckit.jira.taskstotickets plan {PARENT_KEY}` first."
 
 2. **Flat map required** — if the file has `## Story Map` or `## Sub-task Map` but no `## Map`
-   table, **STOP** and either:
-   - Convert legacy → flat **Map** (preserve all existing Jira keys; one row per sub-task), then continue, **or**
-   - **STOP** with instructions to run `plan` after manual migration.
+   table, **STOP**:
+   > "Legacy jira-map format. Run `taskstotickets plan {PARENT_KEY}` to migrate to flat **Map**
+   > (preserves existing keys), then `apply`."
+   On **plan**, run **Step 4a — Migrate legacy map** automatically instead of stopping.
 
 3. **Plan must be applicable** — the **Map** table must contain at least one row where
    Phase Ticket or Sub-task starts with `TBD`. If `**Status**: created` and there are no
@@ -152,6 +156,35 @@ Parse the **Map** table into `EXISTING_ROWS` (all rows) and index **mapped Task 
 **Stale validation** (skip when `MAP_MODE` is `none` or `draft`):
 - Call `getJiraIssue` on the first real phase key in **Map**.
 - If missing in Jira: rename `jira-map.md` → `jira-map.stale.md` and set `MAP_MODE` to `none`.
+
+---
+
+### Step 4a — Migrate legacy `jira-map.md` (plan only)
+
+Run when `MODE` is `plan` and `jira-map.md` has `## Story Map` and/or `## Sub-task Map`
+but no `## Map` section.
+
+1. Copy `jira-map.md` → `jira-map.legacy.md` (do not delete until migration succeeds).
+2. Read **Parent** from header (`**Parent**` or legacy `**Epic**` line).
+3. Build a **story index** from `## Story Map`: `Story Key` → `Task IDs` range + phase title
+   (text after `Phase N:` in the Phase column, trimmed; drop `Phase N:` prefix for titles).
+4. Build **flat Map rows**:
+   - For each row in `## Sub-task Map` (`Sub-task Key | Task ID | Story Key`):
+     - Phase Ticket column = `{Story Key} {title}` (title from story index or Jira `getJiraIssue` summary).
+     - Sub-task = sub-task key; Task ID = task id; Description = from `tasks.md` line for that ID if available.
+   - For each story in the story index with **no** sub-task rows in Sub-task Map (description-only phase):
+     - One row: Phase Ticket = `{Story Key} {title}`; Sub-task = `—`; Task ID = range (e.g. `T001–T011`);
+       Description = `(description-only)`.
+5. Set header `**Status**: created` (keys are real, not `TBD`).
+6. Preserve `**Project**`, `**Format**`, dates; add `**Migrated**`: YYYY-MM-DD.
+7. Write `## Map` with the flat table; keep or omit legacy sections (prefer **omit** Story/Sub-task maps).
+8. Rebuild `## Links` from all real keys (parent, stories, sub-tasks) using `JIRA_BROWSE_BASE`.
+9. Report: `Migrated legacy map → flat Map ({N} rows). Backup: jira-map.legacy.md`
+10. Set `MAP_MODE` from the new file (`created` or `created-pending` if `TBD` rows already present).
+
+Do **not** create or modify Jira issues during migration.
+
+---
 
 **Plan source** — only when `MODE` is `plan`, unless `--fresh` / `--regenerate` is set:
 
