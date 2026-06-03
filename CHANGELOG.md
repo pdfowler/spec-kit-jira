@@ -9,6 +9,12 @@
   not substring match on words like `hardening` or `validation` in deliverable titles
   (fixes stories such as "Contract Hardening" embedding tasks in the description).
 
+### Added
+
+- **Description-only preview warnings** — plan preview and `jira-map.md` **Preview**
+  list each description-only phase with an explicit reason (`≤3 incomplete tasks (N)` or
+  `phase label "setup"`) before apply.
+
 ## [1.4.2] - 2026-05-29
 
 ### Added

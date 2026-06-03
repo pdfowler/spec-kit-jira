@@ -267,17 +267,22 @@ where Phase Ticket or Sub-task starts with `TBD` as the create queue.
   are `- [x]`.
 - A phase with mixed complete/incomplete tasks is included; note already-done tasks
   in the ticket description.
-- **Mark as description-only** (no sub-tasks) only when **both** apply:
-  1. The phase has **≤ 3** incomplete task lines, **or** the phase label (text after
-     `## Phase …:` before an optional ` - ` suffix) is **exactly** one of the
-     bootstrap/polish types below (whole-phrase match, not substring).
-  2. Bootstrap/polish phase labels (case-insensitive, exact match on label only):
+- **Description-only decision** (store `DESCRIPTION_ONLY` and `DESCRIPTION_ONLY_REASON`
+  on each work unit):
+
+  1. If the phase has **≥ 4** incomplete task lines → **not** description-only; create
+     sub-tasks (overrides bootstrap labels — e.g. "Contract Hardening" with T103–T106).
+  2. Else if **≤ 3** incomplete tasks → description-only; reason:
+     `≤3 incomplete tasks (N)`.
+  3. Else extract **phase label**: text after `## Phase …:` up to (not including) the
+     first ` - `. If that label **exactly equals** (case-insensitive) one of:
      `setup`, `foundation`, `foundational`, `prerequisites`, `prerequisite`,
-     `infrastructure`, `infra`, `polish`, `cross-cutting`, `cleanup`, `qa`, `final`.
-  - **Never** description-only when the phase has **≥ 4** incomplete tasks — even if
-    the heading mentions "hardening", "validation", or "teardown".
-  - **Do not** substring-match keywords inside deliverable titles (e.g. "Contract
-    **Hardening**" or "Cross-Cutting **Validation**" are normal phases with sub-tasks).
+     `infrastructure`, `infra`, `polish`, `cross-cutting`, `cleanup`, `qa`, `final`
+     → description-only; reason: `phase label "{label}"`.
+  4. Otherwise → sub-tasks.
+
+  - **Never** substring-match keywords inside deliverable titles (`hardening`,
+    `validation`, `teardown` in a long title are **not** bootstrap signals).
   Tasks for description-only phases are embedded in the ticket description.
 
 **Story-card format** — group by `### PREFIX-NNN: Title` blocks:
@@ -330,7 +335,20 @@ where Phase Ticket or Sub-task starts with `TBD` as the create queue.
 > **Plan** (`MODE` = `plan`): no Jira writes in this step; write `jira-map.md` at the end.
 > **Apply** (`MODE` = `apply`): confirm once, then proceed to Write Phase for `TBD` rows only.
 
-Build and display a preview tree:
+Build and display a preview tree. For each **description-only** work unit, append the
+reason on the same line, e.g. `[Task]  ⚠ description-only — ≤3 incomplete tasks (2)`.
+
+After the tree, if any work unit has `DESCRIPTION_ONLY`, print a **Description-only
+warnings** block:
+
+```text
+⚠ Description-only (tasks will be embedded in the story description, not sub-tasks):
+  · {phase title} — {DESCRIPTION_ONLY_REASON}
+  · Polish and cross-cutting cleanup — ≤3 incomplete tasks (2)
+```
+
+Ask the user to confirm they intend description-only for each listed phase before
+plan write (plan continues automatically unless they abort).
 
 *Checklist format:*
 ```
@@ -341,7 +359,11 @@ Bootstrap project and install dependencies   [Task]  2 sub-tasks
   └─ Install and configure dependencies      [Sub-task]
 Implement core data model                    [Task]  3 sub-tasks
   ├─ …
-Polish and cross-cutting cleanup             [Task]  description-only (≤3 tasks or exact label match)
+Polish and cross-cutting cleanup             [Task]  ⚠ description-only — ≤3 incomplete tasks (2)
+
+⚠ Description-only (tasks embedded in story description, not sub-tasks):
+  · Polish and cross-cutting cleanup — ≤3 incomplete tasks (2)
+
 Total: 3 tickets · 5 sub-tasks  (1 description-only ticket)
 Story points: 5 will be set on PROJ-100
 ```
@@ -366,6 +388,7 @@ Story points: 3 will be set on PROJ-100
   - Incremental (`MAP_MODE` `created`): keep existing **Map** rows; append new rows with
     `TBD`; keep `**Status**: created` (pending apply).
 - Report counts: existing mapped tasks, new `TBD` rows, skipped duplicates.
+- Include description-only warnings in the **Preview** section of `jira-map.md` when any apply.
 - Remind: edit **Map**, then run `apply {PARENT_KEY}`.
 - **STOP** — do not proceed to the Write Phase.
 
