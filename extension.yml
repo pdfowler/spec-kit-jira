@@ -3,19 +3,18 @@ schema_version: "1.0"
 extension:
   id: "jira"
   name: "Jira Integration"
-  version: "1.4.3"
-  description: "Convert spec tasks into Jira tickets with plan/apply jira-map.md, incremental sync, and configurable progress recording"
+  version: "1.5.0"
+  description: "Convert spec tasks into Jira tickets with phase dependency links and configurable progress gates"
   author: "Patrick Fowler"
   repository: "https://github.com/pdfowler/spec-kit-jira"
   homepage: "https://github.com/pdfowler/spec-kit-jira"
   license: "MIT"
 
 requires:
-  speckit_version: ">=0.8.3"
+  speckit_version: ">=0.9.2"
   tools:
     - name: "Atlassian MCP"
       required: true
-      description: "Atlassian Remote MCP Server — provides Jira Cloud read/write access"
 
 provides:
   commands:
@@ -34,6 +33,133 @@ provides:
     - name: "speckit.jira.implement"
       file: "commands/implement.md"
       description: "Run implementation scoped to a phase ticket; records Jira progress using configurable gates"
+
+  config:
+    - name: "jira-config.yml"
+      template: "config/jira-config.template.yml"
+      description: "Jira integration, progress policy, and phase dependency configuration"
+      required: false
+
+config:
+  defaults:
+    jira:
+      phase_dependencies:
+        create_blocks_links_on_apply: true
+        start_when_blocker:
+          mode: "semantic_status_at_least"
+          status: "in_review"
+        on_blocker_not_satisfied: "stop"
+
+      progress_policy:
+        semantic_statuses:
+          todo:
+            - "To Do"
+            - "Backlog"
+          in_progress:
+            - "In Progress"
+            - "Selected for Development"
+          in_review:
+            - "In Review"
+            - "Code Review"
+            - "Review"
+          done:
+            - "Done"
+            - "Closed"
+            - "Resolved"
+
+        monotonic: true
+        on_missing_transition: "warn"
+        draft_pr_counts_as_review: false
+        require_remote_push_for_phase_review: true
+        phase_done_gate: "pr_merged"
+        subtask_done_gate: "local_gates_passed"
+
+        test_tasks:
+          match:
+            - "test"
+            - "failing test"
+            - "coverage"
+            - "contract test"
+          on_commit: "in_review"
+          done_gate: "local_gates_passed"
+
+        implementation_tasks:
+          on_commit: "in_review"
+          done_gate: "local_gates_passed"
+
+        documentation_tasks:
+          match:
+            - "docs"
+            - "documentation"
+            - "readme"
+          on_commit: "done"
+          done_gate: "committed"
+
+        transitions:
+          on_phase_start:
+            issue: "phase"
+            to: "in_progress"
+            only_from:
+              - "todo"
+          on_task_start:
+            issue: "subtask"
+            to: "in_progress"
+            only_from:
+              - "todo"
+          on_task_commit:
+            issue: "subtask"
+            to: "in_review"
+            only_from:
+              - "todo"
+              - "in_progress"
+          on_task_local_gates_passed:
+            issue: "subtask"
+            to: "done"
+            only_from:
+              - "todo"
+              - "in_progress"
+              - "in_review"
+          on_remote_checks_passed:
+            issue: "subtask"
+            to: "done"
+            only_from:
+              - "in_progress"
+              - "in_review"
+          on_pr_opened:
+            issue: "phase"
+            to: "in_review"
+            only_from:
+              - "todo"
+              - "in_progress"
+          on_pr_merged:
+            issue: "phase"
+            to: "done"
+            only_from:
+              - "in_review"
+
+        commits:
+          required_before_task_review: true
+          required_before_phase_review: true
+          stage_files_explicitly: true
+          conventional_commit: true
+          include_jira_key: true
+
+        local_gates:
+          required_before_subtask_done: true
+          required_before_phase_review: true
+          commands: []
+
+        pull_requests:
+          required_before_phase_review: true
+          draft_counts_as_review: false
+          required_before_phase_done: true
+          merge_required_for_phase_done: true
+
+        safety:
+          never_transition_done_backward: true
+          do_not_close_phase_with_uncommitted_changes: true
+          do_not_close_phase_without_validation: true
+          do_not_close_phase_without_pr_unless_configured: true
 
 hooks:
   after_tasks:

@@ -35,22 +35,31 @@ Run `{SCRIPT} --json --require-tasks --include-tasks` from repo root and parse
 
 ---
 
-### Step 2 — Load Jira Progress Policy
+### Step 2 — Load Jira Extension Configuration
 
-Load progress policy in this order:
+Load and deep-merge Jira configuration in this order, where later layers override
+earlier layers:
 
-1. Project override: `.specify/jira-progress-policy.yml`
-2. Extension default: `.specify/extensions/jira/config/jira-progress-policy.yml`
+1. Extension defaults: `.specify/extensions/jira/extension.yml` → `config.defaults`
+2. User-global override (extension-specific): `$HOME/.specify/extensions/jira/jira-config.yml`
+3. Repo/team config: `.specify/extensions/jira/jira-config.yml`
+4. Repo-local override: `.specify/extensions/jira/local-config.yml`
+5. Environment variables: `SPECKIT_JIRA_*`
 
-If neither exists, use the built-in default described below and offer to write it
-to `.specify/jira-progress-policy.yml` for customization.
+Missing files are skipped. The user-global layer is not managed by Spec Kit core;
+this command reads it explicitly.
 
-The policy defines:
+**Legacy compatibility**: if `.specify/jira-progress-policy.yml` exists, print a
+one-line deprecation warning and merge its contents under `jira.progress_policy`
+between layer 2 and layer 3. Do not rewrite or move the legacy file.
+
+The effective config defines:
 - semantic status mappings (`todo`, `in_progress`, `in_review`, `done`)
 - monotonic transition rules (never move Done back to In Progress)
 - which events move sub-tasks and phase tickets
 - commit, local gate, PR open, and PR merge requirements
 - whether draft PRs count as review (default: false)
+- phase dependency gates (`jira.phase_dependencies.start_when_blocker`)
 
 Use policy defaults unless the project override explicitly changes them:
 - Start phase/task -> `in_progress` only from `todo`
@@ -58,6 +67,7 @@ Use policy defaults unless the project override explicitly changes them:
 - Local gates passed -> sub-task `done`
 - Non-draft PR opened -> phase ticket `in_review`
 - PR merged -> phase ticket `done`
+- Blocked phase implementation can start when blocker reaches `in_review` by default
 
 When applying a semantic status:
 1. Call `getTransitionsForJiraIssue` for the issue.
@@ -98,6 +108,19 @@ Parse the **Map** section table only (ignore **Preview** and **Links**):
   is the key; the rest is the title). Keys must match `[A-Z]+-\d+`.
 - **Sub-task index**: Sub-task key keyed by Task ID (skip rows where Sub-task is `—`).
   Sub-task keys must match `[A-Z]+-\d+`.
+- **Review Unit**: optional metadata column. Treat missing values as `—` for maps
+  written before v1.5.0. The current implement flow does not transition Jira from
+  Review Unit values directly; preserve and report them as hints for sync-state or
+  manual PR/repo evidence.
+
+Parse **Phase Dependencies** when the section exists:
+- Table columns: `Blocker | Blocked | Status | Source`.
+- Ignore the placeholder row `— | — | — | *(none)*`.
+- Treat missing **Phase Dependencies** as an empty dependency table for backward
+  compatibility with maps created before v1.5.0.
+- A dependency cell may be either a Jira key/title (`PROJ-123 Title`) or a logical
+  phase reference (`Phase 6`, `US2`) on draft/pending maps. Since implement rejects
+  draft/TBD maps, prefer real Jira keys when evaluating gates.
 
 Extract `**Parent**: PROJ-NNN` from the header for reference.
 
@@ -117,14 +140,15 @@ from the **Map** table.
 - If not found: **STOP** and list available phase ticket keys.
 
 **If no key provided**: cross-reference each phase ticket's Task IDs against
-`tasks.md` completion status and display a status table:
+`tasks.md` completion status and display a status table. Include review unit hints
+when present:
 
 ```text
-| Phase Ticket | Title                                | Task IDs  | Progress | Status    |
-|--------------|--------------------------------------|-----------|----------|-----------|
-| PROJ-450     | Bootstrap project dependencies       | T001–T002 | 2/2      | ✓ Done    |
-| PROJ-456     | Implement SMS delivery pipeline      | T003–T011 | 0/9      | ○ Next    |
-| PROJ-457     | Add delivery audit trail             | T012–T015 | 0/4      | ○ Pending |
+| Phase Ticket | Title                                | Task IDs  | Review Units | Progress | Status    |
+|--------------|--------------------------------------|-----------|--------------|----------|-----------|
+| PROJ-450     | Bootstrap project dependencies       | T001–T002 | —            | 2/2      | ✓ Done    |
+| PROJ-456     | Implement SMS delivery pipeline      | T003–T011 | monorepo#123 | 0/9      | ○ Next    |
+| PROJ-457     | Add delivery audit trail             | T012–T015 | —            | 0/4      | ○ Pending |
 ```
 
 Auto-select the first ticket with incomplete tasks (by order in jira-map.md) and
@@ -183,11 +207,37 @@ Common patterns by technology:
 
 ### Step 8 — Verify Phase Prerequisites
 
-Before executing, verify all earlier phase tickets in `jira-map.md` are fully complete
-(`- [x]` for every Task ID in those rows).
+Use **Phase Dependencies** when present; fall back to earlier **Map** row order when
+the section is missing or has no rows where **Blocked** matches the target phase.
 
-If any earlier phase has incomplete tasks, **STOP**:
-> "Phase ticket PROJ-NNN must be completed before starting this phase."
+**Dependency source**:
+- Match **Blocked** to the target phase by Jira key first, then by logical reference
+  (`Phase N`, `Phase NA`, `USN`) if present.
+- Collect each matching **Blocker** phase. Ignore rows with `Status = skipped` or
+  `Status = unresolved`; warn about unresolved rows so the user can repair the map.
+
+Evaluate each blocker with `jira.phase_dependencies.start_when_blocker`:
+
+| Mode | Satisfied when |
+|------|----------------|
+| `semantic_status_at_least` | `getJiraIssue` status maps to at least the configured semantic status (default `in_review`; `done` also satisfies) |
+| `tasks_complete` | all Task IDs for the blocker phase are checked (`- [x]`) in `tasks.md` |
+| `done` | blocker Jira status maps to semantic `done` |
+| `none` | never blocks implementation; report dependencies only |
+
+If dependency mode is `semantic_status_at_least` or `done`:
+1. Call `getJiraIssue` for the blocker key.
+2. Map Jira's status name through `jira.progress_policy.semantic_statuses`.
+3. Compare semantic order: `todo` < `in_progress` < `in_review` < `done`.
+
+If a blocker is not satisfied:
+- `on_blocker_not_satisfied: stop` → **STOP**:
+  > "Phase ticket PROJ-NNN blocks this phase and has not reached {required gate}."
+- `on_blocker_not_satisfied: warn` → print the warning and continue.
+
+Default behavior is stack-friendly: a blocker in `in_review` allows dependent
+implementation to start, while the blocker phase still moves to `done` only when
+`phase_done_gate` is satisfied.
 
 ---
 
@@ -195,6 +245,10 @@ If any earlier phase has incomplete tasks, **STOP**:
 
 Filter `tasks.md` to the Task IDs in the target ticket's rows. Preserve execution
 order and dependency/parallel rules from `tasks.md`.
+
+If target rows include `Review Unit` values other than `—`, show them before starting
+work as review/sync hints. Do not infer PR state from the value in this command; PR
+evidence is still governed by the configured phase/task gates.
 
 - Before editing implementation files, apply `transitions.on_phase_start` to the
   selected phase ticket if the current status is allowed by policy.
