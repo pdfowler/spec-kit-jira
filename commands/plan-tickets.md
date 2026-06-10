@@ -6,9 +6,8 @@ tools:
   - 'Atlassian/getJiraIssue'
   - 'Atlassian/getJiraProjectIssueTypesMetadata'
   - 'Atlassian/createJiraIssue'
-  - 'Atlassian/updateJiraIssue'
+  - 'Atlassian/editJiraIssue'
   - 'Atlassian/searchJiraIssuesUsingJql'
-  - 'Atlassian/createJiraIssueLink'
 scripts:
   sh: ../scripts/bash/check-prerequisites.sh
   ps: ../scripts/powershell/check-prerequisites.ps1

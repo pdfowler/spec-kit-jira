@@ -1,5 +1,50 @@
 # Changelog
 
+## [1.5.0] - 2026-06-02
+
+### Summary
+
+v1.5.0 prepares the Jira extension for stack-aware, PR-driven delivery without
+collapsing every dependency into "Done before starting." It adds phase dependency
+planning, preserves review-unit metadata for future sync-state reconciliation, and
+moves Jira behavior into a unified configuration model shared by planning, apply,
+and implementation commands.
+
+### Added
+
+- **Phase dependency links** — checklist `tasks.md` `## Dependencies` sections now
+  produce a `## Phase Dependencies` table in `jira-map.md`. On apply, resolved phase
+  dependencies are linked in Jira using `Blocks`.
+- **Review Unit map column** — `jira-map.md` **Map** rows now include optional
+  `Review Unit` metadata for PR/repo/branch review boundaries. Ticket creation ignores
+  the value today, but plan/apply preserve it for sync-state reconciliation.
+- **Configurable dependency start gates** — `implement` can allow blocked phases to
+  start when blockers reach a configurable semantic status. The default is stack-friendly:
+  blockers in `in_review` allow dependent implementation, while phase tickets still
+  move to `done` only when `phase_done_gate` is satisfied.
+- **Unified Jira config template** — added `config/jira-config.template.yml`, with
+  `jira.phase_dependencies` and existing `jira.progress_policy` settings.
+- **Extension defaults** — `extension.yml` now carries default configuration under
+  `config.defaults`.
+- **`.extensionignore`** — excludes dev-only and deprecated files from extension installs.
+
+### Changed
+
+- **Spec Kit minimum** — raised `requires.speckit_version` to `>=0.9.2`.
+- **Config loading** — commands now load deep-merged config layers:
+  extension defaults, optional user-global config, repo config, repo-local
+  `local-config.yml`, and `SPECKIT_JIRA_*` environment overrides.
+- **Link tooling** — dependency links use Atlassian MCP `createIssueLink` /
+  `getIssueLinkTypes` naming.
+
+### Deprecated
+
+- **`.specify/jira-progress-policy.yml`** — still read for one compatibility window
+  and merged under `jira.progress_policy`, but new projects should use
+  `.specify/extensions/jira/jira-config.yml`.
+- **`config/jira-progress-policy.yml`** — retained only as a pointer to
+  `config/jira-config.template.yml`.
+
 ## [1.4.3] - 2026-05-29
 
 ### Fixed

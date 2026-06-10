@@ -6,9 +6,10 @@ tools:
   - 'Atlassian/getJiraIssue'
   - 'Atlassian/getJiraProjectIssueTypesMetadata'
   - 'Atlassian/createJiraIssue'
-  - 'Atlassian/updateJiraIssue'
+  - 'Atlassian/editJiraIssue'
   - 'Atlassian/searchJiraIssuesUsingJql'
-  - 'Atlassian/createJiraIssueLink'
+  - 'Atlassian/getIssueLinkTypes'
+  - 'Atlassian/createIssueLink'
 scripts:
   sh: ../scripts/bash/check-prerequisites.sh
   ps: ../scripts/powershell/check-prerequisites.ps1
@@ -71,9 +72,14 @@ When `MODE` is `apply`, validate immediately after loading paths (before plannin
    > (preserves existing keys), then `apply`."
    On **plan**, run **Step 4a — Migrate legacy map** automatically instead of stopping.
 
-3. **Plan must be applicable** — the **Map** table must contain at least one row where
-   Phase Ticket or Sub-task starts with `TBD`. If `**Status**: created` and there are no
-   `TBD` rows, **STOP**:
+3. **Plan must be applicable** — either:
+   - the **Map** table contains at least one row where Phase Ticket or Sub-task starts
+     with `TBD`, or
+   - **Phase Dependencies** contains at least one row with `Status = pending` and both
+     sides have real Jira keys.
+
+   If `**Status**: created`, there are no `TBD` rows, and there are no pending
+   dependency links, **STOP**:
    > "Nothing to apply. Run `plan` to add new tasks from tasks.md (delta), or confirm the map is complete."
 
 4. Set `PLAN_SOURCE` = `apply-pending` for apply runs (no replan unless `--regenerate`).
@@ -111,6 +117,30 @@ to **tasks.md** and read it.
   **Description** / **Acceptance Criteria** / **Dependencies** blocks
 
 Set `FORMAT` to `checklist` or `story-card`. All subsequent steps branch on `FORMAT`.
+
+---
+
+### Step 1a — Load Jira Extension Configuration
+
+Load and deep-merge Jira configuration in this order, where later layers override
+earlier layers:
+
+1. Extension defaults: `.specify/extensions/jira/extension.yml` → `config.defaults`
+2. User-global override (extension-specific): `$HOME/.specify/extensions/jira/jira-config.yml`
+3. Repo/team config: `.specify/extensions/jira/jira-config.yml`
+4. Repo-local override: `.specify/extensions/jira/local-config.yml`
+5. Environment variables: `SPECKIT_JIRA_*`
+
+Missing files are skipped. The user-global layer is not managed by Spec Kit core;
+this command reads it explicitly.
+
+**Legacy compatibility**: if `.specify/jira-progress-policy.yml` exists, print a
+one-line deprecation warning and merge its contents under `jira.progress_policy`
+between layer 2 and layer 3. Do not rewrite or move the legacy file.
+
+The task-to-ticket workflow uses:
+- `jira.phase_dependencies.create_blocks_links_on_apply`
+- `jira.progress_policy.semantic_statuses` only for preview/status wording when needed
 
 ---
 
@@ -152,6 +182,8 @@ If `FEATURE_DIR/jira-plan.md` exists (legacy), note it is deprecated — do not 
 
 Parse the **Map** table into `EXISTING_ROWS` (all rows) and index **mapped Task IDs**
 (checklist: `T001`, ranges `T003–T005`; story-card: use the Task ID column as stored).
+The `Review Unit` column is optional for maps written before v1.5.0; treat missing
+values as `—`.
 
 **Stale validation** (skip when `MAP_MODE` is `none` or `draft`):
 - Call `getJiraIssue` on the first real phase key in **Map**.
@@ -171,10 +203,11 @@ but no `## Map` section.
 4. Build **flat Map rows**:
    - For each row in `## Sub-task Map` (`Sub-task Key | Task ID | Story Key`):
      - Phase Ticket column = `{Story Key} {title}` (title from story index or Jira `getJiraIssue` summary).
-     - Sub-task = sub-task key; Task ID = task id; Description = from `tasks.md` line for that ID if available.
+     - Sub-task = sub-task key; Task ID = task id; Description = from `tasks.md` line for that ID if available;
+       Review Unit = `—`.
    - For each story in the story index with **no** sub-task rows in Sub-task Map (description-only phase):
      - One row: Phase Ticket = `{Story Key} {title}`; Sub-task = `—`; Task ID = range (e.g. `T001–T011`);
-       Description = `(description-only)`.
+       Description = `(description-only)`; Review Unit = `—`.
 5. Set header `**Status**: created` (keys are real, not `TBD`).
 6. Preserve `**Project**`, `**Format**`, dates; add `**Migrated**`: YYYY-MM-DD.
 7. Write `## Map` with the flat table; keep or omit legacy sections (prefer **omit** Story/Sub-task maps).
@@ -263,6 +296,18 @@ where Phase Ticket or Sub-task starts with `TBD` as the create queue.
 
 **Checklist format** — group by `## Phase N: …` headers:
 - Each phase = one work unit.
+- Build a **phase index** for every phase header, even if the phase is later filtered
+  out by delta rules:
+  - `PHASE_REF`: the token after `Phase` (`1`, `2`, `6`, `6A`, `10`, …).
+  - `PHASE_LABEL`: text after `## Phase N:` up to the first ` - `, when present.
+  - `US_REF`: `USN` when the header contains `User Story N`.
+  - `TITLE_SOURCE`: the full header text used by Step 8 to draft the Jira title.
+  - `MAP_KEY`: the existing real phase key from **Map** when one is already mapped
+    for the phase; otherwise `TBD`.
+- Phase index refs are case-insensitive for matching (`6a` = `6A`, `us2` = `US2`)
+  but should be written in normalized form in `jira-map.md`.
+- If two phases resolve to the same `PHASE_REF` or `US_REF`, **STOP** during plan
+  with an ambiguity message before writing `jira-map.md`.
 - Collect all incomplete task lines (`- [ ] T00N …`). Skip phases where all tasks
   are `- [x]`.
 - A phase with mixed complete/incomplete tasks is included; note already-done tasks
@@ -290,6 +335,48 @@ where Phase Ticket or Sub-task starts with `TBD` as the create queue.
 - Collect all incomplete acceptance criteria lines (`- [ ] …`).
 - Skip cards where Status is `done` or all criteria are checked.
 - Also extract: **Name**, **Description**, **Files to modify**, **Dependencies**.
+
+---
+
+### Step 7b — Parse Phase Dependencies
+
+Run for **checklist format** only.
+
+Locate `## Dependencies` in `tasks.md` and read bullets until the next `##` heading.
+If no section exists, set `PHASE_DEPENDENCIES` to an empty list; `jira-map.md` must
+still include an empty **Phase Dependencies** table.
+
+Resolve mentions using the phase index from Step 7:
+- `Phase 6`, `Phase 6A`, `phase 6a` → matching `PHASE_REF`
+- `US2`, `User Story 2`, `user story 2` → matching `US_REF`
+- Ignore parenthesized task ranges like `(T103–T106)` for dependency linking
+- Never resolve individual task IDs (`T083`, `T084`) as phase dependencies
+
+Extract directed edges as **Blocker → Blocked**:
+
+| Prose pattern | Edge |
+|----------------|------|
+| `Phase X depends on Phase Y` | Y blocks X |
+| `USX depends on USY` / `User Story X depends on User Story Y` | Y blocks X |
+| `Phase X must complete before Phase Y` | X blocks Y |
+| `Phase X must merge before Phase Y` / `should be merged before` | X blocks Y |
+| `Phase X depends on A, B, and C` | A, B, and C each block X |
+
+For compound sentences, extract every resolvable phase/story mention in the dependent
+or downstream clause. Example: `Phase 6A depends on Phase 6 and must merge before
+Phase 6B or Phase 6C` yields `Phase 6 blocks Phase 6A`, `Phase 6A blocks Phase 6B`,
+and `Phase 6A blocks Phase 6C`.
+
+Deduplicate identical edges by normalized blocker/blocked refs. If a dependency
+mention cannot be resolved, keep a row with `Status = unresolved` and the original
+source bullet so the user can repair the map. If the graph contains a cycle, print a
+preview warning; do not fail plan by default.
+
+Do **not** parse `## Parallel Examples`, `## Implementation Strategy`, or inline task
+phrases such as `after T092` for phase dependencies.
+
+Story-card `**Dependencies**` fields keep their existing story-card behavior and are
+not part of **Phase Dependencies**.
 
 ---
 
@@ -350,6 +437,22 @@ warnings** block:
 Ask the user to confirm they intend description-only for each listed phase before
 plan write (plan continues automatically unless they abort).
 
+For checklist format, print a **Phase dependencies** block after description-only
+warnings:
+
+```text
+Phase dependencies (Blocks):
+  Phase 6 → Phase 6A  (Phase 6 blocks Phase 6A)
+  Phase 6A → Phase 6B (Phase 6A blocks Phase 6B)
+Unresolved: 0 | Planned: 2 | Warnings: none
+```
+
+If no phase dependencies were found:
+
+```text
+Phase dependencies (Blocks): none
+```
+
 *Checklist format:*
 ```
 Project: PROJ  |  Parent: PROJ-100 (or "standalone")  |  Format: checklist
@@ -387,8 +490,18 @@ Story points: 3 will be set on PROJ-100
   - First plan (`MAP_MODE` `none`): `**Status**: draft`, all keys `TBD`.
   - Incremental (`MAP_MODE` `created`): keep existing **Map** rows; append new rows with
     `TBD`; keep `**Status**: created` (pending apply).
+- Write or **merge** **Phase Dependencies**:
+  - Recompute edges from `tasks.md` on every plan.
+  - Preserve existing `linked` rows when the same blocker/blocked edge is still present.
+  - Add new edges as `planned` when either side is still logical (`Phase N` / `USN`) or
+    `pending` when both sides already have real Jira keys.
+  - Keep unresolved edges as `unresolved` with their source bullet.
+  - On `--regenerate`, report previously linked rows that no longer appear in
+    `tasks.md` as drift; do not remove Jira links.
 - Report counts: existing mapped tasks, new `TBD` rows, skipped duplicates.
+- Report dependency counts: `linked`, `pending/planned`, `unresolved`, and cycle warnings.
 - Include description-only warnings in the **Preview** section of `jira-map.md` when any apply.
+- Include the phase dependency summary in **Preview** for checklist format.
 - Remind: edit **Map**, then run `apply {PARENT_KEY}`.
 - **STOP** — do not proceed to the Write Phase.
 
@@ -433,11 +546,17 @@ Total: 3 tickets · 5 sub-tasks
 
 ## Map
 
-| Phase Ticket | Sub-task | Task ID | Description |
-|--------------|----------|---------|-------------|
-| TBD Bootstrap project and install dependencies | TBD | T001 | Create project structure |
-| TBD Bootstrap project and install dependencies | TBD | T002 | Install dependencies |
-| TBD Polish and cross-cutting cleanup | — | T003–T005 | (description-only) |
+| Phase Ticket | Sub-task | Task ID | Description | Review Unit |
+|--------------|----------|---------|-------------|-------------|
+| TBD Bootstrap project and install dependencies | TBD | T001 | Create project structure | — |
+| TBD Bootstrap project and install dependencies | TBD | T002 | Install dependencies | — |
+| TBD Polish and cross-cutting cleanup | — | T003–T005 | (description-only) | — |
+
+## Phase Dependencies
+
+| Blocker | Blocked | Status | Source |
+|---------|---------|--------|--------|
+| — | — | — | *(none)* |
 
 ## Links
 
@@ -452,6 +571,17 @@ Total: 3 tickets · 5 sub-tasks
 
 - Use `TBD` as the key token in **Map** columns; append the human title after `TBD`
   and a space (same shape as live `KEY Title` rows).
+- Always write `Review Unit` in **Map**:
+  - Default value is `—`.
+  - This is optional sync/review metadata, not ticket creation input.
+  - Users may edit it while the map is draft or after apply to identify a finer-grained
+    review unit such as a sub-task PR, repo slice, or branch/PR evidence.
+  - Preserve existing values during replan/apply; do not overwrite user edits.
+- Always write **Phase Dependencies** immediately after **Map**:
+  - Use `Phase N` / `USN` refs while keys are `TBD`.
+  - Use `Status = planned` for resolvable draft edges.
+  - Use `Status = unresolved` for rows that could not resolve cleanly.
+  - If no edges exist, write the placeholder row `— | — | — | *(none)*`.
 - **Preview** holds the Step 9 ASCII tree and totals.
 - **Links**: one row per distinct parent key (real URL when `PARENT_KEY` is set) plus
   one row per planned phase/sub-task (`TBD` in Key column, `—` in Link until created).
@@ -476,7 +606,7 @@ Total: 3 tickets · 5 sub-tasks
 ### Step 10 — Set Story Points
 
 If `PARENT_KEY` is set, apply `ESTIMATED_POINTS` to the parent:
-- No existing points → confirm, then call `updateJiraIssue`.
+- No existing points → confirm, then call `editJiraIssue`.
 - Existing points differ → show both, ask to update or keep.
 - Existing points match → report "aligned" and move on.
 
@@ -493,6 +623,9 @@ If `PARENT_KEY` is set, apply `ESTIMATED_POINTS` to the parent:
 `PLAN_SOURCE` is `apply-pending`. When adding sub-tasks to an **existing phase**, use
 `createJiraIssue` with the **existing phase key** as parent — do not create a new
 phase ticket.
+
+If there are no `TBD` rows but **Phase Dependencies** has retryable `pending` rows,
+skip ticket creation and proceed directly to Step 11b.
 
 For each work unit in order (only units with at least one unmapped Task ID):
 
@@ -520,10 +653,42 @@ For each work unit in order (only units with at least one unmapped Task ID):
      - *Story-card*: the full criterion text
 
 3. **Link dependencies** (story-card only): for each work unit with a non-empty
-   **Dependencies** field, call `createJiraIssueLink` to add "blocks"/"is blocked by" links.
+   **Dependencies** field, call `createIssueLink` to add "blocks"/"is blocked by" links.
 
 Report progress after each ticket:
 `✓ PROJ-456 Implement SMS delivery pipeline · 3 sub-tasks created`
+
+---
+
+### Step 11b — Link Phase Dependencies
+
+Run after all Step 11 issue creation calls succeed and before persisting
+`jira-map.md`.
+
+Skip this step when:
+- `FORMAT` is not `checklist`, or
+- `jira.phase_dependencies.create_blocks_links_on_apply` is `false`, or
+- **Phase Dependencies** has only the placeholder row.
+
+Procedure:
+
+1. Call `getIssueLinkTypes` once and confirm a link type named `Blocks` exists.
+   If it does not exist, **STOP** with a clear project-configuration message.
+
+2. For each **Phase Dependencies** row with `Status` = `planned` or `pending`:
+   - Resolve **Blocker** and **Blocked** to real Jira keys from the merged **Map**.
+   - Skip rows where either side is still `TBD`, unresolved, or the same issue key.
+   - Call `createIssueLink` with:
+     - `type`: `Blocks`
+     - `inwardIssue`: blocker key
+     - `outwardIssue`: blocked key
+   - On success: set row `Status` to `linked`.
+   - If Jira reports the link already exists: treat as success and set `linked`.
+   - On any other link error: leave row `Status` as `pending`, report the error, and
+     continue with remaining dependency rows.
+
+`createIssueLink` direction: for "A is blocked by B", use `inwardIssue = B` and
+`outwardIssue = A`.
 
 ---
 
@@ -537,6 +702,12 @@ Report progress after each ticket:
 - Keep all prior **Map** rows whose Task IDs were not in this apply batch.
 - Update rows that were applied: replace `TBD` with real keys in Phase Ticket / Sub-task.
 - Append brand-new rows from this run.
+- Merge **Phase Dependencies** after key replacement:
+  - Replace logical refs (`Phase N`, `USN`) with `KEY Title` when both sides are now
+    known from **Map**.
+  - Preserve `linked` rows.
+  - Keep failed or skipped link attempts as `pending` so a later apply can retry.
+  - Keep unresolved rows unchanged.
 - Rebuild **Links** from the merged **Map** (dedupe by key).
 - Set `**Status**: created` only when **Map** has zero `TBD` keys; otherwise
   `**Status**: created` with pending `TBD` rows (implement blocks until apply completes).
@@ -554,11 +725,17 @@ First-time apply from `draft`: after success, set `**Status**: created` and
 
 ## Map
 
-| Phase Ticket | Sub-task | Task ID | Description |
-|--------------|----------|---------|-------------|
-| PROJ-456 Implement SMS delivery pipeline | PROJ-460 | T001 | Create adapter |
-| PROJ-456 Implement SMS delivery pipeline | PROJ-461 | T002 | Add retry logic |
-| PROJ-457 Bootstrap project dependencies | — | T003–T005 | (description-only) |
+| Phase Ticket | Sub-task | Task ID | Description | Review Unit |
+|--------------|----------|---------|-------------|-------------|
+| PROJ-456 Implement SMS delivery pipeline | PROJ-460 | T001 | Create adapter | — |
+| PROJ-456 Implement SMS delivery pipeline | PROJ-461 | T002 | Add retry logic | monorepo#123 |
+| PROJ-457 Bootstrap project dependencies | — | T003–T005 | (description-only) | — |
+
+## Phase Dependencies
+
+| Blocker | Blocked | Status | Source |
+|---------|---------|--------|--------|
+| PROJ-457 Bootstrap project dependencies | PROJ-456 Implement SMS delivery pipeline | linked | Phase 2 blocks Phase 3 |
 
 ## Links
 
@@ -573,6 +750,11 @@ First-time apply from `draft`: after success, set `**Status**: created` and
 
 - One row per sub-task in **Map**; description-only phases use `—` in the Sub-task column.
 - The Phase Ticket column repeats `KEY Title` for each of its sub-tasks.
+- `Review Unit` is optional metadata for review/sync workflows. Current ticket creation
+  ignores it; future/manual sync-state reconciliation may use it to associate a row
+  with a PR, repo, branch, or other review boundary.
+- **Phase Dependencies** stores phase-level Jira Blocks relationships. `implement`
+  reads this section when evaluating phase prerequisites.
 - **Links** is for navigation only; `/speckit.jira.implement` reads **Map**, not Links.
 - This file is consumed by `/speckit.jira.implement`.
 

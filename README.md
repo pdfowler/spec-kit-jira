@@ -1,6 +1,6 @@
 # spec-kit-jira
 
-A [Spec Kit](https://github.com/github/spec-kit) extension that bridges your spec-driven development workflow with Jira. After you generate tasks with `/speckit.tasks`, this extension creates a three-tier Jira hierarchy, provides a mandatory preview before writing anything, and records implementation progress with a configurable Jira status policy.
+A [Spec Kit](https://github.com/github/spec-kit) extension that bridges your spec-driven development workflow with Jira. After you generate tasks with `/speckit.tasks`, this extension plans and applies Jira tickets, persists a reviewable `jira-map.md`, links phase dependencies with Jira `Blocks`, and records implementation progress with configurable gates.
 
 ## Commands
 
@@ -28,13 +28,18 @@ tasks.md phases                  Jira hierarchy
                                    └── Sub-task: Create route handlers
                                    └── Sub-task: Add request DTOs
 ## Phase 4: Polish/QA      →     (description-only: tasks embedded in ticket)
+
+## Dependencies
+- Phase 3 depends on Phase 2       →     Phase 2 blocks Phase 3
 ```
 
 **Sub-tasks are created selectively.** Phases are description-only when:
 - Phase has ≤ 3 incomplete tasks, **or**
-- Phase name contains: `setup`, `foundation`, `foundational`, `prereq`,
-  `prerequisite`, `infrastructure`, `infra`, `polish`, `cross-cutting`, `cleanup`,
-  `qa`, `validation`, `hardening`, `final`
+- Phase label exactly matches setup/polish-style labels such as `setup`, `foundation`,
+  `infrastructure`, `polish`, `cross-cutting`, `cleanup`, `qa`, or `final`
+
+Phases with 4+ incomplete tasks always get sub-tasks. The matcher does not substring
+match deliverable words such as "hardening" inside longer titles.
 
 **Ticket titles are clean, action-oriented summaries** — no "Phase N:" prefix.
 
@@ -55,7 +60,7 @@ Sub-tasks are created from acceptance criteria. Dependencies become Jira issue l
 
 ## Requirements
 
-- [Spec Kit](https://github.com/github/spec-kit) >= 0.8.3
+- [Spec Kit](https://github.com/github/spec-kit) >= 0.9.2
 - An [Atlassian MCP server](https://marketplace.atlassian.com/apps/1234567/atlassian-remote-mcp-server)
   configured in your AI agent (Cursor, Claude Code, etc.)
 - A Jira Cloud instance accessible via the MCP server
@@ -104,8 +109,8 @@ specify extension add --dev /path/to/spec-kit-jira
 
 ```bash
 specify extension list
-# ✓ Jira Integration (v1.4.3)
-#     Three-tier Jira hierarchy (Epic → Story → Sub-task) with dry-run preview
+# ✓ Jira Integration (v1.5.0)
+#     Jira ticket planning with phase dependency links and configurable gates
 #     Commands: 4 | Hooks: 1 | Status: Enabled
 ```
 
@@ -164,14 +169,16 @@ target a specific Story:
 /speckit.jira.implement ENG-456
 ```
 
-Implementation progress is controlled by `jira-progress-policy.yml` rather than a
-hardcoded "done when checked off" rule. By default:
+Implementation progress is controlled by `jira-config.yml` rather than a hardcoded
+"done when checked off" rule. By default:
 
 - Starting a phase or task moves the mapped Jira issue to `In Progress` when possible.
 - A local commit moves a mapped sub-task to `In Review`.
 - Passing local quality gates can move a mapped sub-task to `Done`.
 - A non-draft PR moves the phase ticket to `In Review`.
 - A merged PR moves the phase ticket to `Done`.
+- A phase blocked by another phase may start once the blocker reaches `In Review`;
+  the blocker still moves to `Done` only when its done gate is satisfied.
 - Done tickets are never moved backward by default.
 
 ```
@@ -181,23 +188,38 @@ hardcoded "done when checked off" rule. By default:
 ✓ PR merged — ENG-456 moved to Done.
 ```
 
-### Progress policy
+### Configuration
 
-The extension ships with a default policy at:
+The extension ships with defaults in `extension.yml` under `config.defaults` and a
+reference template at:
 
 ```text
-config/jira-progress-policy.yml
+config/jira-config.template.yml
 ```
 
 Projects can copy it to:
 
 ```text
-.specify/jira-progress-policy.yml
+.specify/extensions/jira/jira-config.yml
 ```
 
-and customize status names, gates, and transition behavior without changing the
-extension. The implement command loads the project override first, then falls back
-to the extension default.
+and customize status names, dependency gates, and transition behavior without changing
+the extension.
+
+Configuration is deep-merged in this order:
+
+1. Extension defaults: `.specify/extensions/jira/extension.yml` → `config.defaults`
+2. Optional user-global override: `$HOME/.specify/extensions/jira/jira-config.yml`
+3. Repo/team config: `.specify/extensions/jira/jira-config.yml`
+4. Repo-local override: `.specify/extensions/jira/local-config.yml`
+5. Environment variables: `SPECKIT_JIRA_*`
+
+The user-global layer is extension-specific; Spec Kit core does not manage it. Add
+`.specify/extensions/jira/local-config.yml` to your repo's `.gitignore` if your
+project does not already ignore local extension config.
+
+Legacy `.specify/jira-progress-policy.yml` files are still read for one compatibility
+window and merged under `jira.progress_policy` with a deprecation warning.
 
 Key policy knobs include:
 
@@ -205,25 +227,30 @@ Key policy knobs include:
 - Monotonic transitions: prevent `Done` from moving backward
 - Sub-task done gate: `committed`, `local_gates_passed`, `remote_checks_passed`, or `explicit_confirm`
 - Phase done gate: `pr_merged`, `remote_checks_passed`, `local_gates_passed`, or `explicit_confirm`
+- Phase dependency start gate: `semantic_status_at_least`, `tasks_complete`, `done`, or `none`
 - Draft PR behavior: whether a draft PR counts as review
 - Test-task behavior: whether red-phase tests move to review or done
 - Local gate commands: project-specific test/lint/typecheck/build commands
 
+For stacked PR workflows, the default `jira.phase_dependencies.start_when_blocker`
+allows dependent implementation to start when the blocker is `in_review`, while merge
+ordering remains enforced by the stack and GitHub.
+
 ### Hook: after_tasks
 
 The extension registers an optional `after_tasks` hook. When enabled, your agent
-will prompt you to create Jira tickets immediately after `/speckit.tasks` completes —
-no separate command invocation needed.
+will prompt you to plan Jira tickets immediately after `/speckit.tasks` completes.
+Apply remains a separate explicit step.
 
 ```yaml
 # .specify/extensions.yml (auto-generated)
 hooks:
   after_tasks:
   - extension: jira
-    command: speckit.jira.taskstotickets
+    command: speckit.jira.plan-tickets
     enabled: true
     optional: true
-    prompt: "Create Jira tickets for the generated tasks?"
+    prompt: "Plan Jira tickets from tasks?"
 ```
 
 ## Artifacts
@@ -242,6 +269,9 @@ Sections:
 
 - **Preview** (draft) — ASCII tree from the preview gate; optional after create
 - **Map** — flat table of phase tickets, sub-tasks, and task IDs (implementation scope)
+- **Review Unit** column in **Map** — optional sync/review metadata for a PR, repo,
+  branch, or other review boundary; defaults to `—` and is preserved by plan/apply
+- **Phase Dependencies** — phase-level `Blocks` relationships parsed from `tasks.md`
 - **Links** — clickable Jira URLs in an appendix (navigation only; not parsed by implement)
 
 ```markdown
@@ -252,9 +282,15 @@ Sections:
 
 ## Map
 
-| Phase Ticket | Sub-task | Task ID | Description |
-|--------------|----------|---------|-------------|
-| ENG-456 Implement SMS delivery pipeline | ENG-460 | T006 | Create adapter |
+| Phase Ticket | Sub-task | Task ID | Description | Review Unit |
+|--------------|----------|---------|-------------|-------------|
+| ENG-456 Implement SMS delivery pipeline | ENG-460 | T006 | Create adapter | monorepo#123 |
+
+## Phase Dependencies
+
+| Blocker | Blocked | Status | Source |
+|---------|---------|--------|--------|
+| ENG-455 Bootstrap project dependencies | ENG-456 Implement SMS delivery pipeline | linked | Phase 3 depends on Phase 2 |
 
 ## Links
 

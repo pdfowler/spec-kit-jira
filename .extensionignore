@@ -1,0 +1,5 @@
+tests/
+.github/
+.gitignore
+docs/*.draft.md
+config/jira-progress-policy.yml

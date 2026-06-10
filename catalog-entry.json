@@ -1,9 +1,9 @@
 {
   "name": "Jira Integration",
   "id": "jira",
-  "description": "Convert spec tasks into Jira tickets with plan/apply jira-map.md, incremental sync, and configurable progress recording",
+  "description": "Convert spec tasks into Jira tickets with phase dependency links and configurable progress gates",
   "author": "Patrick Fowler",
-  "version": "1.4.3",
+  "version": "1.5.0",
   "download_url": "https://github.com/pdfowler/spec-kit-jira/archive/refs/heads/main.zip",
   "repository": "https://github.com/pdfowler/spec-kit-jira",
   "homepage": "https://github.com/pdfowler/spec-kit-jira",
@@ -11,7 +11,7 @@
   "changelog": "https://github.com/pdfowler/spec-kit-jira/blob/main/CHANGELOG.md",
   "license": "MIT",
   "requires": {
-    "speckit_version": ">=0.8.3",
+    "speckit_version": ">=0.9.2",
     "tools": [
       {
         "name": "Atlassian MCP",
@@ -34,5 +34,5 @@
   "downloads": 0,
   "stars": 0,
   "created_at": "2026-02-27T00:00:00Z",
-  "updated_at": "2026-05-29T00:00:00Z"
+  "updated_at": "2026-06-02T00:00:00Z"
 }
