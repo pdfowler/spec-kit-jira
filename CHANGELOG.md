@@ -2,6 +2,14 @@
 
 ## [1.5.0] - 2026-06-02
 
+### Summary
+
+v1.5.0 prepares the Jira extension for stack-aware, PR-driven delivery without
+collapsing every dependency into "Done before starting." It adds phase dependency
+planning, preserves review-unit metadata for future sync-state reconciliation, and
+moves Jira behavior into a unified configuration model shared by planning, apply,
+and implementation commands.
+
 ### Added
 
 - **Phase dependency links** — checklist `tasks.md` `## Dependencies` sections now

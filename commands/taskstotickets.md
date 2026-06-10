@@ -6,7 +6,7 @@ tools:
   - 'Atlassian/getJiraIssue'
   - 'Atlassian/getJiraProjectIssueTypesMetadata'
   - 'Atlassian/createJiraIssue'
-  - 'Atlassian/updateJiraIssue'
+  - 'Atlassian/editJiraIssue'
   - 'Atlassian/searchJiraIssuesUsingJql'
   - 'Atlassian/getIssueLinkTypes'
   - 'Atlassian/createIssueLink'
@@ -606,7 +606,7 @@ Total: 3 tickets · 5 sub-tasks
 ### Step 10 — Set Story Points
 
 If `PARENT_KEY` is set, apply `ESTIMATED_POINTS` to the parent:
-- No existing points → confirm, then call `updateJiraIssue`.
+- No existing points → confirm, then call `editJiraIssue`.
 - Existing points differ → show both, ask to update or keep.
 - Existing points match → report "aligned" and move on.
 

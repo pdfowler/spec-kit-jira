@@ -5,7 +5,7 @@ tools:
   - 'Atlassian/getJiraIssue'
   - 'Atlassian/getTransitionsForJiraIssue'
   - 'Atlassian/transitionJiraIssue'
-  - 'Atlassian/updateJiraIssue'
+  - 'Atlassian/editJiraIssue'
   - 'Atlassian/searchJiraIssuesUsingJql'
 scripts:
   sh: ../scripts/bash/check-prerequisites.sh
@@ -76,7 +76,7 @@ When applying a semantic status:
 4. If no matching transition exists, follow `on_missing_transition` (`warn`, `stop`, `skip`).
 
 > [!CAUTION]
-> Do not use `updateJiraIssue` as a substitute for workflow transitions. Jira status
+> Do not use `editJiraIssue` as a substitute for workflow transitions. Jira status
 > changes must use the project's actual transition IDs.
 
 ---

@@ -6,7 +6,7 @@ tools:
   - 'Atlassian/getJiraIssue'
   - 'Atlassian/getJiraProjectIssueTypesMetadata'
   - 'Atlassian/createJiraIssue'
-  - 'Atlassian/updateJiraIssue'
+  - 'Atlassian/editJiraIssue'
   - 'Atlassian/searchJiraIssuesUsingJql'
 scripts:
   sh: ../scripts/bash/check-prerequisites.sh
